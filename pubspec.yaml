@@ -1,0 +1,26 @@
+name: blindstick_companion
+description: Accessible companion app for an AI-powered blind stick.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_blue_plus: ^1.35.5
+  geolocator: ^13.0.2
+  shared_preferences: ^2.3.3
+  http: ^1.2.2
+  url_launcher: ^6.3.1
+  permission_handler: ^11.3.1
+  flutter_tts: ^4.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

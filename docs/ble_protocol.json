@@ -1,0 +1,24 @@
+{
+  "name": "Saathi Blind Stick BLE Protocol",
+  "version": 1,
+  "service_uuid": "7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001",
+  "characteristics": {
+    "telemetry": {
+      "uuid": "7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001",
+      "properties": ["notify"],
+      "encoding": "UTF-8 JSON, newline-delimited",
+      "example": {"distance_cm": 42, "object": "person ahead", "battery": 78, "traffic_walk": false, "crowd": "medium"}
+    },
+    "command": {
+      "uuid": "7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001",
+      "properties": ["write", "write without response optional"],
+      "encoding": "UTF-8 JSON, newline-delimited",
+      "commands": [{"cmd":"hello","protocol":1},{"cmd":"start"},{"cmd":"stop"}]
+    }
+  },
+  "notes": [
+    "Do not report fabricated sensor values. Omit unknown fields until valid measurements exist.",
+    "Local hardware warnings must continue if the phone disconnects.",
+    "traffic_walk must be emitted only by a validated traffic-light detector; never infer permission to cross from an unvalidated model."
+  ]
+}
