@@ -91,7 +91,7 @@ class BleStickService extends ChangeNotifier {
    final results=await FlutterBluePlus.scanResults.firstWhere((r)=>r.any((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid)))).timeout(const Duration(seconds:12),onTimeout:()=>FlutterBluePlus.scanResults.first);
    final match=results.where((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid))).toList();
    if(match.isEmpty){status='Stick not found';lastError='No device advertising the Saathi service was found. Check that the stick is powered on and running the matching firmware.';return;}
-   device=match.first.device; await device!.connect(timeout:const Duration(seconds:15),license:License.free);
+   device=match.first.device; await device!.connect(timeout:const Duration(seconds:15));
    connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){connected=s==BluetoothConnectionState.connected;if(!connected){assistance=false;status='Connection lost — stick alerts may be unavailable';_event('Connection lost');}else{status='Stick connected';_event('Stick connected');}notifyListeners();});
    final services=await device!.discoverServices(); BluetoothService? svc;
    for(final s in services){if(s.serviceUuid==Guid(serviceUuid)){svc=s;break;}}
@@ -117,7 +117,30 @@ class _NoContext{static BuildContext? context;}
 final stick=BleStickService();
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
-Future<void> openNavigation(BuildContext context,String destination)async{if(destination.trim().isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Please enter a destination first.')));return;}final pos=await getPosition();if(pos==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Location unavailable. Enable location permission and GPS, then try again.')));return;}final q=Uri.encodeComponent(destination.trim());final uri=Uri.parse('https://www.google.com/maps/dir/?api=1&origin=${pos.latitude},${pos.longitude}&destination=$q&travelmode=walking&dir_action=navigate');if(!await launchUrl(uri,mode:LaunchMode.externalApplication)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not open navigation. Install or enable a maps app.')));}}
+Future<void> openNavigation(BuildContext context,String destination) async {
+  void showMessage(String message) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+  if (destination.trim().isEmpty) {
+    showMessage('Please enter a destination first.');
+    return;
+  }
+  final pos = await getPosition();
+  if (!context.mounted) return;
+  if (pos == null) {
+    showMessage('Location unavailable. Enable location permission and GPS, then try again.');
+    return;
+  }
+  final q = Uri.encodeComponent(destination.trim());
+  final route = Uri.parse('https://www.google.com/maps/dir/?api=1&origin=${pos.latitude},${pos.longitude}&destination=$q&travelmode=walking&dir_action=navigate');
+  try {
+    final opened = await launchUrl(route, mode: LaunchMode.externalApplication);
+    if (!opened) showMessage('Could not open navigation. Install or enable a maps app.');
+  } catch (_) {
+    showMessage('Could not open navigation. Check your internet connection and maps app.');
+  }
+}
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
 class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer;String locationText='Location not checked yet';
