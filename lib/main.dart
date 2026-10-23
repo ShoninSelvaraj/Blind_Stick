@@ -45,7 +45,7 @@ class _LoginPageState extends State<LoginPage> {
   const SizedBox(height:16), Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
   const SizedBox(height:20),const Text('Saathi',style:TextStyle(fontSize:38,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
   const Text('Who is signing in?',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),TextField(controller:u,autofillHints:const [AutofillHints.username],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Username',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12),TextField(controller:p,obscureText:hide,onSubmitted:(_)=>login(),decoration:InputDecoration(labelText:'PIN',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
-  if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:login,icon:const Icon(Icons.arrow_forward),label:const Text('Continue',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),const SizedBox(height:28),
+  if (error != null) { Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: red))); } const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:login,icon:const Icon(Icons.arrow_forward),label:const Text('Continue',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),const SizedBox(height:28),
   Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(20)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('DEMO SIGN-IN',style:TextStyle(fontWeight:FontWeight.w900,letterSpacing:1.1)),SizedBox(height:10),Text('Patient: patient / 1234',style:TextStyle(fontSize:16)),Text('Caregiver: caregiver / 1234',style:TextStyle(fontSize:16)),SizedBox(height:8),Text('These are prototype credentials. They are not secure production accounts.',style:TextStyle(fontSize:12))]))
  ])));
 }
@@ -113,7 +113,6 @@ class BleStickService extends ChangeNotifier {
  Future<void> disconnect()async{await device?.disconnect();connected=false;assistance=false;status='Stick disconnected';notifyListeners();}
  @override void dispose(){scanSub?.cancel();notifySub?.cancel();connectionSub?.cancel();adapterSub?.cancel();device?.disconnect();tts.stop();super.dispose();}
 }
-class _NoContext{static BuildContext? context;}
 final stick=BleStickService();
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
@@ -144,7 +143,7 @@ Future<void> openNavigation(BuildContext context,String destination) async {
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
 class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer;String locationText='Location not checked yet';
- @override void initState(){super.initState();_NoContext.context=context;_load();stick.addListener(_changed);}
+ @override void initState(){super.initState();_load();stick.addListener(_changed);}
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
  void _changed(){if(!mounted)return;setState((){});}
  Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.username,p);}
