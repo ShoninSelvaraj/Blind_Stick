@@ -95,12 +95,88 @@ class AuthGate extends StatelessWidget {
   });
  });
 }
-class ProfilePendingPage extends StatelessWidget {
- final String email;const ProfilePendingPage({super.key,required this.email});
- @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
- Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
- Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:signOutSafely,icon:const Icon(Icons.logout),label:const Text('Sign out'))
- ])))));
+class ProfilePendingPage extends StatefulWidget {
+ final String email;
+ const ProfilePendingPage({super.key,required this.email});
+ @override State<ProfilePendingPage> createState()=>_ProfilePendingPageState();
+}
+
+class _ProfilePendingPageState extends State<ProfilePendingPage> {
+ final _nameController=TextEditingController();
+ Role _role=Role.patient;
+ bool _saving=false;
+ String? _error;
+ @override void initState(){
+  super.initState();
+  _nameController.text=FirebaseAuth.instance.currentUser?.displayName??'';
+ }
+ @override void dispose(){_nameController.dispose();super.dispose();}
+
+ Future<void> _completeProfile() async {
+  final user=FirebaseAuth.instance.currentUser;
+  final name=_nameController.text.trim();
+  if(user==null){setState(()=>_error='Your sign-in session expired. Sign in again.');return;}
+  if(name.isEmpty){setState(()=>_error='Enter your name to finish setting up the account.');return;}
+  setState(()=>_saving=true);
+  try{
+   final profile=FirebaseFirestore.instance.collection('users').doc(user.uid);
+   final existing=await profile.get();
+   if(existing.exists){
+    throw StateError('A profile record already exists but is invalid. Sign out and contact the project administrator; this recovery screen cannot safely overwrite an existing role.');
+   }
+   await profile.set({
+    'uid':user.uid,
+    'email':(user.email??widget.email).trim().toLowerCase(),
+    'displayName':name,
+    'role':_role==Role.patient?'patient':'caregiver',
+    'createdAt':FieldValue.serverTimestamp(),
+   });
+   await user.updateDisplayName(name);
+   if(mounted)setState(()=>_error=null);
+  }on FirebaseException catch(ex){
+   if(mounted)setState(()=>_error='Profile could not be saved (${ex.code}). Check your connection and Firestore rules, then try again.');
+  }catch(ex){
+   if(mounted)setState(()=>_error=ex is StateError?ex.message.toString():'Profile setup failed. Please try again.');
+  }finally{
+   if(mounted)setState(()=>_saving=false);
+  }
+ }
+
+ @override Widget build(BuildContext context)=>Scaffold(
+  body:SafeArea(child:Center(child:SingleChildScrollView(
+   padding:const EdgeInsets.all(24),
+   child:ConstrainedBox(
+    constraints:const BoxConstraints(maxWidth:520),
+    child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+     Icon(Icons.account_circle_outlined,size:64,color:teal),
+     const SizedBox(height:18),
+     Text('Finish account setup',textAlign:TextAlign.center,style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
+     const SizedBox(height:12),
+     Text('Signed in as ${widget.email}. Your sign-in succeeded, but the profile record was not saved. Complete setup below to continue.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),
+     const SizedBox(height:24),
+     TextField(controller:_nameController,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),
+     const SizedBox(height:14),
+     DropdownButtonFormField<Role>(
+      value:_role,
+      decoration:const InputDecoration(labelText:'How will you use BlindStick?',prefixIcon:Icon(Icons.accessibility_new)),
+      items:const [
+       DropdownMenuItem(value:Role.patient,child:Text('Use my smart stick')),
+       DropdownMenuItem(value:Role.caregiver,child:Text('Support someone I care about')),
+      ],
+      onChanged:_saving?null:(value){if(value!=null)setState(()=>_role=value);},
+     ),
+     if(_error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(_error!,style:TextStyle(color:red))),
+     const SizedBox(height:20),
+     SizedBox(height:56,child:FilledButton.icon(
+      onPressed:_saving?null:_completeProfile,
+      icon:_saving?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.check_circle_outline),
+      label:Text(_saving?'Saving profile…':'Complete setup'),
+     )),
+     TextButton(onPressed:_saving?null:signOutSafely,child:const Text('Sign out')),
+    ]),
+   ),
+  ))),
+ );
 }
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
