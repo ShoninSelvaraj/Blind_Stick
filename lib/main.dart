@@ -1421,46 +1421,78 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    const SizedBox(height:10),
    _readinessItem(
     'Ultrasonic obstacle range',
-    t.distanceCm==null?'No distance reading received': '${t.distanceCm!.round()} centimetres',
+    t.distanceCm==null?'No live distance reading. Check the sensor, wiring, and firmware.':'${t.distanceCm!.round()} centimetres',
     t.distanceCm==null?Icons.sensors_off:Icons.radar,
     t.distanceCm==null?Colors.orange:teal,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'Object detection',
-    t.detectionStatus=='model_not_installed'
-        ? 'Not available yet — no trained detection model is installed.'
-        : 'Awaiting verified detections from the connected device.',
+    'On-device AI model',
+    vision.modelReady?'SSD MobileNet COCO is downloaded and ready on this phone.':'Not downloaded. Prepare it while internet is available.',
     Icons.center_focus_strong,
-    Colors.orange,
+    vision.modelReady?teal:Colors.orange,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'Traffic signal guidance',
-    'Not implemented in the current camera firmware. Do not rely on this app to decide when to cross.',
-    Icons.traffic,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Crowd density warning',
-    'Not implemented in the current camera firmware.',
-    Icons.groups_outlined,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Stick vibration motor',
-    'Physical motor is not controlled by current firmware. The app only provides phone haptics for supported warnings and turn prompts.',
-    Icons.vibration,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Camera and AI',
-    !stick.connected?'Connect the stick to check camera status':t.detectionStatus=='model_not_installed'?'Camera bridge detected; object-detection AI is not installed':t.cameraReady==true?'Camera reports ready; AI results still need verification':'Camera status not confirmed',
+    'ESP32-CAM connection',
+    vision.cameraReachable?'Camera reachable at ${vision.endpoint}.':'Not confirmed. Join the stick camera Wi-Fi, then tap Check camera.',
     Icons.camera_alt_outlined,
-    t.detectionStatus=='model_not_installed'||!stick.connected?Colors.orange:teal,
+    vision.cameraReachable?teal:Colors.orange,
+   ),
+   const SizedBox(height:8),
+   Container(
+    padding:const EdgeInsets.all(16),
+    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFDCE5E9))),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Text('Camera AI status',style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:navy)),
+     const SizedBox(height:6),
+     Semantics(liveRegion:true,child:Text(vision.status,style:const TextStyle(fontSize:15,color:Color(0xFF59697B)))),
+     if(vision.detections.isNotEmpty)Padding(
+      padding:const EdgeInsets.only(top:8),
+      child:Text('Visible objects: ${vision.detections.take(5).map((d)=>d['label']).join(', ')}. People: ${vision.personCount}. Crowd estimate: ${vision.crowdLevel}.',style:TextStyle(fontSize:15,fontWeight:FontWeight.w700,color:navy)),
+     ),
+     if(vision.trafficState!='not_detected')Padding(
+      padding:const EdgeInsets.only(top:6),
+      child:Text('Traffic lamp estimate: ${vision.trafficState}. This does not confirm a pedestrian WALK signal.',style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
+     ),
+    ]),
+   ),
+   const SizedBox(height:10),
+   SizedBox(
+    height:62,
+    child:FilledButton.icon(
+     onPressed:vision.modelReady||vision.preparing?null:vision.prepareModel,
+     icon:vision.preparing?const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)):Icon(vision.modelReady?Icons.check_circle_outline:Icons.download_for_offline_outlined,size:26),
+     label:Text(vision.preparing?'Preparing AI model…':vision.modelReady?'On-device AI model prepared':'Prepare on-device AI model',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   const SizedBox(height:8),
+   SizedBox(
+    height:58,
+    child:OutlinedButton.icon(
+     onPressed:vision.checkCamera,
+     icon:const Icon(Icons.wifi_tethering_outlined,size:24),
+     label:const Text('Check camera connection',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:8),
+   SizedBox(
+    height:56,
+    child:OutlinedButton.icon(
+     onPressed:vision.openWifiSettings,
+     icon:const Icon(Icons.wifi),
+     label:const Text('Open Wi-Fi settings',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:10),
+   const Text(
+    'Setup: download the AI model while internet is available. Then connect to Wi-Fi “BlindStick-Camera” (development password: StickAssist#26), return to this app, connect the stick over Bluetooth, and start assistance. The camera Wi-Fi has no internet, so online map search may require mobile data to remain active.',
+    style:TextStyle(color:Color(0xFF59697B),fontSize:14),
+   ),
+   const SizedBox(height:8),
+   const Text(
+    'Safety limitation: camera detection and crowd counts are estimates. A detected green traffic light does not prove that a pedestrian signal says WALK. Never cross based on this app alone.',
+    style:TextStyle(color:Color(0xFF59697B),fontSize:14),
    ),
    if(stick.lastError!=null)Padding(
     padding:const EdgeInsets.only(top:12),
@@ -1472,7 +1504,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    ),
    const SizedBox(height:14),
    const Text(
-    'Safety: the current hardware bridge does not yet provide verified ultrasonic distance or trained object/traffic/crowd detections. Keep using your usual mobility technique and stop if device data is missing.',
+    'The camera and ultrasonic sensor require the matching firmware and correct physical wiring. Missing or stale readings are not safe readings. Keep using your usual mobility technique.',
     style:TextStyle(color:Color(0xFF59697B),fontSize:14),
    ),
   ],
