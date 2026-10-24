@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -11,7 +14,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-void main() => runApp(const BlindStickApp());
+Future<void> main() async { WidgetsFlutterBinding.ensureInitialized(); await Firebase.initializeApp(); runApp(const BlindStickApp()); }
 
 const navy = Color(0xFF17233B);
 const teal = Color(0xFF007F78);
@@ -29,27 +32,76 @@ class BlindStickApp extends StatelessWidget {
     title: 'Saathi', debugShowCheckedModeBanner: false,
     theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: teal), scaffoldBackgroundColor: const Color(0xFFF7FAFC), fontFamily: 'Roboto',
       inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), contentPadding: const EdgeInsets.all(16))),
-    home: const LoginPage());
+    home: const AuthGate());
 }
 
 enum Role { patient, caregiver }
-class AppUser { final String username, name; final Role role; const AppUser(this.username, this.name, this.role); }
-const users = {'patient': AppUser('patient','Arun',Role.patient), 'caregiver': AppUser('caregiver','Meera',Role.caregiver)};
+class AppUser { final String uid, username, name; final Role role; const AppUser({required this.uid, required this.username, required this.name, required this.role}); }
+class AuthGate extends StatelessWidget {
+ const AuthGate({super.key});
+ @override Widget build(BuildContext context) => StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(),builder:(context,auth){
+  if(auth.connectionState==ConnectionState.waiting)return const Scaffold(body:Center(child:CircularProgressIndicator()));
+  final user=auth.data;if(user==null)return const LoginPage();
+  return StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(stream:FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),builder:(context,profile){
+   if(profile.connectionState==ConnectionState.waiting)return const Scaffold(body:Center(child:CircularProgressIndicator()));
+   final data=profile.data?.data();final role=data?['role'];
+   if(data==null||(role!='patient'&&role!='caregiver'))return ProfilePendingPage(email:user.email??'');
+   final appUser=AppUser(uid:user.uid,username:user.email??user.uid,name:(data['displayName']??user.displayName??'Friend').toString(),role:role=='patient'?Role.patient:Role.caregiver);
+   return role=='patient'?PatientPage(user:appUser):CaregiverPage(user:appUser);
+  });
+ });
+}
+class ProfilePendingPage extends StatelessWidget {
+ final String email;const ProfilePendingPage({super.key,required this.email});
+ @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
+ const Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),const Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
+ Text('Signed in as $email. A project administrator must assign your patient or caregiver role and pairing permissions before access is enabled.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout),label:const Text('Sign out'))
+ ])))));
+}
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
 class _LoginPageState extends State<LoginPage> {
- final u=TextEditingController(), p=TextEditingController(); bool hide=true; String? error;
- void login(){ final user=users[u.text.trim().toLowerCase()]; if(user==null||p.text!='1234'){setState(()=>error='Those demo details do not match. Please try again.'); HapticFeedback.mediumImpact(); return;} Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>user.role==Role.patient?PatientPage(user:user):CaregiverPage(user:user))); }
- @override void dispose(){u.dispose();p.dispose();super.dispose();}
+ final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();bool hide=true,createAccount=false,busy=false;String? error,info;
+ @override void dispose(){email.dispose();password.dispose();name.dispose();super.dispose();}
+ Future<void> submit() async {
+  if(busy)return;
+  if(email.text.trim().isEmpty||!email.text.contains('@')||password.text.length<6||(createAccount&&name.text.trim().isEmpty)){setState(()=>error=createAccount?'Enter your name, a valid email and a password of at least 6 characters.':'Enter your email and password (at least 6 characters).');return;}
+  setState(()=>{busy=true,error=null,info=null});
+  try{
+   if(createAccount){
+    final credential=await FirebaseAuth.instance.createUserWithEmailAndPassword(email:email.text.trim(),password:password.text);
+    await credential.user!.updateDisplayName(name.text.trim());
+    await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).set({'uid':credential.user!.uid,'email':email.text.trim().toLowerCase(),'displayName':name.text.trim(),'role':'pending','createdAt':FieldValue.serverTimestamp()});
+    if(mounted)setState(()=>info='Account created. An administrator must assign your role and pairing permissions before use.');
+   }else{await FirebaseAuth.instance.signInWithEmailAndPassword(email:email.text.trim(),password:password.text);}
+  }on FirebaseAuthException catch(ex){
+   if(mounted)setState(()=>error=switch(ex.code){
+    'invalid-email'=>'That email address is not valid.','user-not-found'=>'No account exists for this email. Choose Create account first.',
+    'wrong-password'||'invalid-credential'=>'Email or password is incorrect.','email-already-in-use'=>'An account already exists for this email. Sign in instead.',
+    'weak-password'=>'Choose a stronger password.','network-request-failed'=>'No network connection. Check internet and try again.',
+    'too-many-requests'=>'Too many attempts. Wait a little before trying again.',_=>'Could not authenticate (${ex.code}). Check Firebase Authentication settings.'});
+  }catch(ex){if(mounted)setState(()=>error='Could not finish sign-in. Check Firebase configuration and Firestore rules.');}
+  finally{if(mounted)setState(()=>busy=false);}
+ }
+ Future<void> resetPassword()async{
+  if(email.text.trim().isEmpty){setState(()=>error='Enter your email first, then tap Forgot password.');return;}
+  try{await FirebaseAuth.instance.sendPasswordResetEmail(email:email.text.trim());if(mounted)setState(()=>info='Password reset email requested. Check your inbox and spam folder.');}
+  on FirebaseAuthException catch(ex){if(mounted)setState(()=>error='Could not send reset email (${ex.code}).');}
+ }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
-  const SizedBox(height:16), Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
-  const SizedBox(height:20),const Text('Saathi',style:TextStyle(fontSize:38,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
-  const Text('Who is signing in?',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),TextField(controller:u,autofillHints:const [AutofillHints.username],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Username',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12),TextField(controller:p,obscureText:hide,onSubmitted:(_)=>login(),decoration:InputDecoration(labelText:'PIN',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
-  if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: red))), const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:login,icon:const Icon(Icons.arrow_forward),label:const Text('Continue',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),const SizedBox(height:28),
-  Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(20)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('DEMO SIGN-IN',style:TextStyle(fontWeight:FontWeight.w900,letterSpacing:1.1)),SizedBox(height:10),Text('Patient: patient / 1234',style:TextStyle(fontSize:16)),Text('Caregiver: caregiver / 1234',style:TextStyle(fontSize:16)),SizedBox(height:8),Text('These are prototype credentials. They are not secure production accounts.',style:TextStyle(fontSize:12))]))
+ const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
+ const SizedBox(height:20),const Text('Saathi',style:TextStyle(fontSize:38,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
+ Text(createAccount?'Create your account':'Welcome back',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
+ if(createAccount)...[TextField(controller:name,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12)],
+ TextField(controller:email,keyboardType:TextInputType.emailAddress,autofillHints:const [AutofillHints.email],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Email address',prefixIcon:Icon(Icons.email_outlined))),const SizedBox(height:12),
+ TextField(controller:password,obscureText:hide,autofillHints:createAccount?const [AutofillHints.newPassword]:const [AutofillHints.password],onSubmitted:(_)=>submit(),decoration:InputDecoration(labelText:'Password',helperText:createAccount?'Use at least 6 characters':'',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
+ if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:const TextStyle(color:teal))),
+ const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:busy?null:submit,icon:busy?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(createAccount?Icons.person_add_alt_1:Icons.arrow_forward),label:Text(busy?'Please wait…':createAccount?'Create account':'Sign in',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),
+ if(!createAccount)Align(alignment:Alignment.centerRight,child:TextButton(onPressed:busy?null:resetPassword,child:const Text('Forgot password?'))),
+ TextButton(onPressed:busy?null:()=>setState(()=>{createAccount=!createAccount,error=null,info=null}),child:Text(createAccount?'Already have an account? Sign in':'New here? Create an account')),
+ const SizedBox(height:20),const Text('A project administrator must assign patient/caregiver roles and authorize pairing before an account can access personal data or control a stick.',textAlign:TextAlign.center,style:TextStyle(color:Color(0xFF64748B),fontSize:13))
  ])));
 }
-
 class StickTelemetry {
  double? distanceCm; String object='Waiting for device data'; String signal='unknown'; int? battery; bool? trafficWalk; String crowd='unknown'; DateTime? receivedAt;
  bool get urgent=>distanceCm!=null&&distanceCm!<35;
@@ -167,7 +219,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
 
 class CaregiverPage extends StatefulWidget{final AppUser user;const CaregiverPage({super.key,required this.user});@override State<CaregiverPage> createState()=>_CaregiverPageState();}
 class _CaregiverPageState extends State<CaregiverPage>{final patient=TextEditingController(text:'patient');final api=ApiService.instance;String status='Not checked';bool busy=false;double? patientLat,patientLon;String latestAlert='No alert data received';Timer? timer;
- @override void initState(){super.initState();_NoContext.context=context;_check();timer=Timer.periodic(const Duration(seconds:45),(_)=>_check(silent:true));}
+ @override void initState(){super.initState();_check();timer=Timer.periodic(const Duration(seconds:45),(_)=>_check(silent:true));}
  Future<void> _check({bool silent=false})async{if(busy)return;busy=true;final data=await api.getJson('/api/patients/${Uri.encodeComponent(patient.text.trim())}/status');if(!mounted)return;final loc=data?['last_location'];final alerts=data?['recent_alerts'];setState((){status=api.baseUrl.isEmpty?'Backend not configured':data==null?'Could not reach patient status endpoint':'Patient status received';if(loc is Map){final a=loc['latitude'];final b=loc['longitude'];patientLat=a is num?a.toDouble():null;patientLon=b is num?b.toDouble():null;}if(alerts is List&&alerts.isNotEmpty){final a=alerts.first;latestAlert=a is Map?'${a['type']??'Alert'} · ${a['created_at']??''}':a.toString();}});busy=false;if(!silent)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(status)));}
  Future<void> _openLastLocation()async{if(patientLat==null||patientLon==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('No patient coordinates have been returned by the backend yet.')));return;}final url=Uri.parse('https://www.google.com/maps/search/?api=1&query=$patientLat,$patientLon');await launchUrl(url,mode:LaunchMode.externalApplication);}
  @override void dispose(){patient.dispose();timer?.cancel();super.dispose();}
