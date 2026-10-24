@@ -1411,7 +1411,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    TextField(
     controller:destination,
     textInputAction:TextInputAction.go,
-    onSubmitted:(v)=>openNavigation(c,v),
+    onSubmitted:(v)=>openNavigation(context,v),
     decoration:const InputDecoration(
      labelText:'Destination',
      hintText:'Place, street, or address',
@@ -1422,7 +1422,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    SizedBox(
     height:66,
     child:FilledButton.icon(
-     onPressed:()=>openNavigation(c,destination.text),
+     onPressed:()=>openNavigation(context,destination.text),
      icon:const Icon(Icons.map_outlined,size:28),
      label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
@@ -1544,7 +1544,6 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   ]),
  );
 
- Widget _statusTile(String title,String value,Color color,IconData icon)=>Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE1E8EE))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,color:color,size:25),const SizedBox(height:12),Text(title,style:const TextStyle(color:Color(0xFF68778A))),const SizedBox(height:4),Text(value,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:navy,fontWeight:FontWeight.w900,fontSize:17))]));
  Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:const TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
 }
 
