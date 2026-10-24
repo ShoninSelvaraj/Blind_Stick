@@ -1448,7 +1448,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;bool _locationWriteWarningShown=false;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
  void _contrastChanged(){if(mounted)setState((){});}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
@@ -1564,16 +1564,29 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   }
   locationSharingSubscription=Geolocator.getPositionStream(locationSettings:settings).listen((p){
    if(!mounted||!sharing)return;
-   setState((){
-    position=p;
-    locationText='Location ready · accuracy ${p.accuracy.round()} m';
-   });
-   unawaited(api.location(widget.user.uid,p));
+   setState(()=>position=p);
+    unawaited(_saveSharedLocation(p));
   },onError:(_){
    if(!mounted)return;
    setState(()=>locationText='Location sharing paused — GPS updates unavailable');
    stick.announce('Location sharing has lost live GPS updates. Your caregiver may see an older location.');
   });
+ }
+
+ Future<bool> _saveSharedLocation(Position p) async {
+  final saved=await api.location(widget.user.uid,p);
+  if(!mounted)return saved;
+  if(!saved){
+   setState(()=>locationText='GPS is available, but location could not be shared. Check internet and Firestore access.');
+   if(!_locationWriteWarningShown){
+    _locationWriteWarningShown=true;
+    unawaited(stick.announce('Warning. GPS is available, but your location could not be sent to your caregiver. They may see an older location. Check internet access.'));
+   }
+  }else{
+   _locationWriteWarningShown=false;
+   if(sharing)setState(()=>locationText='Location shared · accuracy ${p.accuracy.round()} m · updated just now');
+  }
+  return saved;
  }
 
  Future<void> _refreshLocation()async{
@@ -1583,7 +1596,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    position=p;
    locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m';
   });
-  if(sharing&&p!=null)await api.location(widget.user.uid,p);
+  if(sharing&&p!=null)await _saveSharedLocation(p);
  }
 
  Future<void> _toggleSharing(bool v)async{
@@ -1613,7 +1626,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    position=current;
    locationText='Location ready · accuracy ${current.accuracy.round()} m';
   });
-  await api.location(widget.user.uid,current);
+  await _saveSharedLocation(current);
   await _startLocationSharingStream(background:background);
   await stick.announce(background
    ? 'Location sharing is on, including while the screen is off. A persistent Android notification will remain visible. Turn sharing off here to stop it.'
