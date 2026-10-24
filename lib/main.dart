@@ -186,12 +186,51 @@ class _LoginPageState extends State<LoginPage> {
  ])));
 }
 class StickTelemetry {
- double? distanceCm; String object='Waiting for device data'; String signal='unknown'; int? battery; bool? trafficWalk; String crowd='unknown'; String detectionStatus='waiting_for_device'; bool? cameraReady; bool? cameraFrameAvailable; DateTime? receivedAt;
+ double? distanceCm;
+ String object='Waiting for device data';
+ String signal='unknown';
+ int? battery;
+ bool? trafficWalk;
+ String crowd='unknown';
+ String detectionStatus='waiting_for_device';
+ bool? cameraReady;
+ bool? cameraFrameAvailable;
+ DateTime? receivedAt;
+ DateTime? distanceReceivedAt;
+ String rangeSensorStatus='unknown';
+
  bool get urgent=>distanceCm!=null&&distanceCm!<35;
  bool get caution=>distanceCm!=null&&distanceCm!<90;
+
  void fromJson(Map<String,dynamic> j){
   final d=j['distance_cm']??j['distanceCm']??j['distance'];
-  distanceCm=d is num?d.toDouble():null;
+  final incomingRangeStatus=j['range_sensor_status'];
+  if(incomingRangeStatus is String){
+   rangeSensorStatus=incomingRangeStatus;
+  }
+  if(d is num){
+   final value=d.toDouble();
+   if(value.isFinite&&value>=2&&value<=400){
+    distanceCm=value;
+    distanceReceivedAt=DateTime.now();
+    rangeSensorStatus='fresh';
+   }else{
+    distanceCm=null;
+    distanceReceivedAt=null;
+    rangeSensorStatus='unavailable';
+   }
+  }else if(d!=null){
+   distanceCm=null;
+   distanceReceivedAt=null;
+   rangeSensorStatus='unavailable';
+  }else if(rangeSensorStatus=='unavailable'){
+   distanceCm=null;
+   distanceReceivedAt=null;
+  }else if(rangeSensorStatus=='fresh'){
+   rangeSensorStatus='unavailable';
+   distanceCm=null;
+   distanceReceivedAt=null;
+  }
   final detected=j['object']??j['detected_object']??j['label'];
   object=detected?.toString()??'Waiting for device data';
   signal=(j['signal']??'unknown').toString();
@@ -319,8 +358,57 @@ class PairingService {
 
 class BleStickService extends ChangeNotifier {
  final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub;
- bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;
- BleStickService(){tts.setLanguage('en-IN');tts.setSpeechRate(0.46);_freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){if(!connected||!assistance)return;final last=telemetry.receivedAt;final stale=last==null||DateTime.now().difference(last)>const Duration(seconds:4);if(stale&&!_staleWarningSpoken){_staleWarningSpoken=true;lastError='Live stick data stopped. Do not rely on the app for obstacle warnings.';_event('Live sensor data stopped');HapticFeedback.heavyImpact();_speak('Warning. Live stick data has stopped. Stop and use your usual safe mobility method.');notifyListeners();}else if(!stale&&_staleWarningSpoken){_staleWarningSpoken=false;lastError=null;notifyListeners();}});}
+ bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;bool _rangeWarningSpoken=false;
+ BleStickService(){
+  tts.setLanguage('en-IN');
+  tts.setSpeechRate(0.46);
+  _freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){
+   if(!connected||!assistance){_rangeWarningSpoken=false;return;}
+   final now=DateTime.now();
+   final lastPacket=telemetry.receivedAt;
+   final packetStale=lastPacket==null||now.difference(lastPacket)>const Duration(seconds:4);
+   if(packetStale){
+    if(!_staleWarningSpoken){
+     _staleWarningSpoken=true;
+     lastError='Live stick data stopped. Do not rely on the app for obstacle warnings.';
+     telemetry.distanceCm=null;
+     telemetry.rangeSensorStatus='unavailable';
+     _event('Live sensor data stopped');
+     HapticFeedback.heavyImpact();
+     _speak('Warning. Live stick data has stopped. Stop and use your usual safe mobility method.');
+     notifyListeners();
+    }
+    return;
+   }
+   if(_staleWarningSpoken){
+    _staleWarningSpoken=false;
+    lastError=null;
+    _event('Live stick data restored');
+    _speak('Live stick communication has resumed. Check that obstacle sensors are working before continuing.');
+    notifyListeners();
+   }
+   final lastRange=telemetry.distanceReceivedAt;
+   final rangeStale=telemetry.rangeSensorStatus=='unavailable'||
+       telemetry.distanceCm==null||lastRange==null||
+       now.difference(lastRange)>const Duration(seconds:3);
+   if(rangeStale&&!_rangeWarningSpoken){
+    _rangeWarningSpoken=true;
+    telemetry.distanceCm=null;
+    telemetry.rangeSensorStatus='unavailable';
+    lastError='No fresh ultrasonic distance reading. Do not treat missing sensor data as a clear path.';
+    _event('Ultrasonic range reading missing or stale');
+    HapticFeedback.heavyImpact();
+    _speak('Warning. No fresh ultrasonic distance reading is available. The path is not confirmed clear. Stop in a safe place and check the sensor and your usual mobility aid.');
+    notifyListeners();
+   }else if(!rangeStale&&_rangeWarningSpoken){
+    _rangeWarningSpoken=false;
+    if(lastError?.startsWith('No fresh ultrasonic distance reading')??false)lastError=null;
+    _event('Ultrasonic range reading restored');
+    _speak('Ultrasonic distance readings have resumed. Continue cautiously and keep using your usual mobility technique.');
+    notifyListeners();
+   }
+  });
+ }
  Future<void> scanAndConnect() async {
   if(scanning)return;
   if(connected)await disconnect();
@@ -398,7 +486,11 @@ final vision=CameraVisionService(
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
 
-Future<void> openNavigation(BuildContext context, String destination) async {
+Future<void> openNavigation(
+  BuildContext context,
+  String destination, {
+  Future<void> Function()? onEmergency,
+}) async {
   final place = destination.trim();
   if (place.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -408,7 +500,10 @@ Future<void> openNavigation(BuildContext context, String destination) async {
   }
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => InAppNavigationPage(initialQuery: place),
+      builder: (_) => InAppNavigationPage(
+        initialQuery: place,
+        onEmergency: onEmergency,
+      ),
     ),
   );
 }
@@ -430,11 +525,13 @@ class InAppNavigationPage extends StatefulWidget {
   final String? initialQuery;
   final LatLng? initialDestination;
   final String initialDestinationLabel;
+  final Future<void> Function()? onEmergency;
   const InAppNavigationPage({
     super.key,
     this.initialQuery,
     this.initialDestination,
     this.initialDestinationLabel = 'Shared location',
+    this.onEmergency,
   });
 
   @override
@@ -1081,6 +1178,15 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       appBar: AppBar(
         title: const Text('Walking navigation'),
         actions: [
+          if (widget.onEmergency != null)
+            IconButton(
+              tooltip: 'Emergency help and SOS',
+              onPressed: () async {
+                if (_guidance) await _stopGuidance();
+                await widget.onEmergency!.call();
+              },
+              icon: const Icon(Icons.sos, color: red, size: 28),
+            ),
           IconButton(
             tooltip: 'Accessibility settings',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
@@ -1425,7 +1531,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    const SizedBox(height:10),
    _readinessItem(
     'Ultrasonic obstacle range',
-    t.distanceCm==null?'No live distance reading. Check the sensor, wiring, and firmware.':'${t.distanceCm!.round()} centimetres',
+    t.distanceCm==null?'No fresh distance reading. Treat the path as unverified.':'${t.distanceCm!.round()} centimetres',
     t.distanceCm==null?Icons.sensors_off:Icons.radar,
     t.distanceCm==null?Colors.orange:teal,
    ),
@@ -1554,7 +1660,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    TextField(
     controller:destination,
     textInputAction:TextInputAction.go,
-    onSubmitted:(v)=>openNavigation(context,v),
+    onSubmitted:(v)=>openNavigation(context,v,onEmergency:_sos),
     decoration:const InputDecoration(
      labelText:'Destination',
      hintText:'Place, street, or address',
@@ -1565,7 +1671,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    SizedBox(
     height:66,
     child:FilledButton.icon(
-     onPressed:()=>openNavigation(context,destination.text),
+     onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
      icon:const Icon(Icons.map_outlined,size:28),
      label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
