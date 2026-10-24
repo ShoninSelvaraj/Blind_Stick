@@ -39,7 +39,15 @@ class CameraVisionService extends ChangeNotifier {
   String status = 'On-device AI model not prepared';
   String crowdLevel = 'unknown';
   String trafficState = 'not_detected';
+  String pedestrianSignalState = 'unknown';
+  String vehicleSignalState = 'unknown';
+  bool pedestrianSignalLost = false;
+  bool _seenPedestrianRedBaseline = false;
+  String _pedestrianCandidate = 'unknown';
+  int _pedestrianCandidateFrames = 0;
+  int _pedestrianMissingFrames = 0;
   int personCount = 0;
+  List<Map<String, dynamic>> pedestrianSignals = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> detections = <Map<String, dynamic>>[];
 
   bool get modelReady => _modelReady;
@@ -165,6 +173,13 @@ class CameraVisionService extends ChangeNotifier {
     );
     _running = true;
     _failedFrames = 0;
+    pedestrianSignalState = 'unknown';
+    vehicleSignalState = 'unknown';
+    pedestrianSignalLost = false;
+    _seenPedestrianRedBaseline = false;
+    _pedestrianCandidate = 'unknown';
+    _pedestrianCandidateFrames = 0;
+    _pedestrianMissingFrames = 0;
     status = 'Starting camera detection…';
     _timer = Timer.periodic(const Duration(milliseconds: 900), (_) => _processFrame());
     notifyListeners();
@@ -209,6 +224,11 @@ class CameraVisionService extends ChangeNotifier {
       }).toList(growable: false);
       personCount = (result['personCount'] as num?)?.toInt() ?? 0;
       crowdLevel = (result['crowdLevel'] ?? 'unknown').toString();
+      final signalRows = result['pedestrianSignals'] as List<dynamic>? ?? <dynamic>[];
+      pedestrianSignals = signalRows.whereType<Map>().map((item) {
+        return item.map((key, value) => MapEntry(key.toString(), value));
+      }).toList(growable: false);
+      _updatePedestrianSignalState();
       final trafficDetections =
           detections.where((d) => d['label'] == 'traffic light');
       trafficState = trafficDetections.isEmpty
@@ -229,6 +249,64 @@ class CameraVisionService extends ChangeNotifier {
     } finally {
       _processing = false;
       notifyListeners();
+    }
+  }
+
+  void _updatePedestrianSignalState() {
+    final pedestrianCandidates = pedestrianSignals.where((d) {
+      final label = d['label'];
+      final score = (d['confidence'] as num? ?? 0).toDouble();
+      return (label == 'human_red' || label == 'human_green') && score >= 0.45;
+    }).toList()
+      ..sort((a, b) =>
+          ((b['confidence'] as num?) ?? 0).compareTo((a['confidence'] as num?) ?? 0));
+
+    final vehicleCandidates = pedestrianSignals.where((d) {
+      final label = d['label'];
+      return label == 'vehicle_red' || label == 'vehicle_green';
+    }).toList()
+      ..sort((a, b) =>
+          ((b['confidence'] as num?) ?? 0).compareTo((a['confidence'] as num?) ?? 0));
+    vehicleSignalState = vehicleCandidates.isEmpty
+        ? 'unknown'
+        : (vehicleCandidates.first['label'] == 'vehicle_green' ? 'green' : 'red');
+
+    if (pedestrianCandidates.isNotEmpty) {
+      final candidate = pedestrianCandidates.first['label'] == 'human_red'
+          ? 'red'
+          : 'green';
+      _pedestrianMissingFrames = 0;
+      pedestrianSignalLost = false;
+      if (candidate == _pedestrianCandidate) {
+        _pedestrianCandidateFrames++;
+      } else {
+        _pedestrianCandidate = candidate;
+        _pedestrianCandidateFrames = 1;
+      }
+
+      // Require a repeated result across frames before exposing a state to speech/UI.
+      if (_pedestrianCandidateFrames >= 2) {
+        if (candidate == 'red') {
+          _seenPedestrianRedBaseline = true;
+          pedestrianSignalState = 'red';
+        } else {
+          pedestrianSignalState =
+              _seenPedestrianRedBaseline ? 'green' : 'green_unconfirmed';
+        }
+      }
+      return;
+    }
+
+    _pedestrianCandidate = 'unknown';
+    _pedestrianCandidateFrames = 0;
+    _pedestrianMissingFrames++;
+    if (_pedestrianMissingFrames >= 3 &&
+        pedestrianSignalState != 'unknown' &&
+        !pedestrianSignalLost) {
+      pedestrianSignalLost = true;
+      pedestrianSignalState = 'unknown';
+    } else if (_pedestrianMissingFrames >= 3) {
+      pedestrianSignalState = 'unknown';
     }
   }
 
@@ -279,13 +357,29 @@ class CameraVisionService extends ChangeNotifier {
       cueKey = 'obstacle:$label';
       spoken =
           'Potential obstacle in the camera view: $label. Camera distance is not measured. Use your cane and verified distance sensor; stop if uncertain.';
+    } else if (pedestrianSignalLost) {
+      cueKey = 'pedestrian-signal-lost';
+      spoken =
+          'The pedestrian signal is no longer clearly visible. I cannot confirm the crossing indication. Stop in a safe place and verify using the audible or tactile crossing signal.';
+    } else if (pedestrianSignalState == 'red') {
+      cueKey = 'pedestrian-signal-red';
+      spoken =
+          'The model estimates a red pedestrian signal. Stop at the crossing and confirm with the audible or tactile signal. Do not rely on this camera alone.';
+    } else if (pedestrianSignalState == 'green') {
+      cueKey = 'pedestrian-signal-green';
+      spoken =
+          'The model estimates a green pedestrian signal after a previously observed red signal. This is not permission to cross. Confirm with the audible or tactile signal and check the crossing.';
+    } else if (pedestrianSignalState == 'green_unconfirmed') {
+      cueKey = 'pedestrian-signal-green-unconfirmed';
+      spoken =
+          'The model estimates a green pedestrian signal, but no red baseline has been observed in this session. Do not cross based on this app. Verify with the audible or tactile signal.';
     } else if (traffic != null) {
       final colour = (traffic['trafficState'] ?? 'unknown').toString();
-      cueKey = 'traffic:$colour';
+      cueKey = 'vehicle-traffic-light:$colour';
       switch (colour) {
         case 'red':
           spoken =
-              'A traffic light appears red. Stop. This camera cannot confirm the pedestrian signal or crossing safety.';
+              'A traffic light appears red. This cannot confirm the pedestrian signal or crossing safety.';
           break;
         case 'amber':
           spoken =
@@ -311,8 +405,6 @@ class CameraVisionService extends ChangeNotifier {
     final now = DateTime.now();
     final isNewCue = cueKey != _lastCueKey;
     final elapsed = now.difference(_lastCueAt);
-    // Do not let a lower-priority crowd/traffic cue suppress a new obstacle alert.
-    // Repeat the same obstacle cue no more than once every 1.8 seconds.
     final shouldAnnounce = obstacle != null
         ? (isNewCue || elapsed >= const Duration(seconds: 4))
         : ((isNewCue || elapsed >= const Duration(seconds: 12)) &&
@@ -323,7 +415,6 @@ class CameraVisionService extends ChangeNotifier {
       HapticFeedback.heavyImpact();
       vibrate(obstacle != null ? 300 : 180).catchError((_) {});
       speak(spoken).catchError((_) {});
-      // Persist only state changes or periodic summaries, not every camera frame.
       if (cueKey != _lastLoggedCueKey ||
           now.difference(_lastLoggedAt) >= const Duration(seconds: 30)) {
         _lastLoggedCueKey = cueKey;
