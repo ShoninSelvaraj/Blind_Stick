@@ -390,7 +390,7 @@ final stick=BleStickService();
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
 
-Future<void> openNavigation(BuildContext context, String destination) async {
+Future<void> openNavigation(BuildContext context, String destination, {Future<void> Function()? onEmergency}) async {
   final place = destination.trim();
   if (place.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -400,7 +400,7 @@ Future<void> openNavigation(BuildContext context, String destination) async {
   }
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => InAppNavigationPage(initialQuery: place),
+      builder: (_) => InAppNavigationPage(initialQuery: place, onEmergency: onEmergency),
     ),
   );
 }
@@ -422,11 +422,13 @@ class InAppNavigationPage extends StatefulWidget {
   final String? initialQuery;
   final LatLng? initialDestination;
   final String initialDestinationLabel;
+  final Future<void> Function()? onEmergency;
   const InAppNavigationPage({
     super.key,
     this.initialQuery,
     this.initialDestination,
     this.initialDestinationLabel = 'Shared location',
+    this.onEmergency,
   });
 
   @override
@@ -1095,6 +1097,12 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       appBar: AppBar(
         title: const Text('Walking navigation'),
         actions: [
+          if (widget.onEmergency != null)
+            IconButton(
+              tooltip: 'Emergency help and SOS',
+              onPressed: widget.onEmergency,
+              icon: const Icon(Icons.sos, color: red, size: 28),
+            ),
           IconButton(
             tooltip: 'Accessibility settings',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
@@ -1516,7 +1524,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    TextField(
     controller:destination,
     textInputAction:TextInputAction.go,
-    onSubmitted:(v)=>openNavigation(context,v),
+    onSubmitted:(v)=>openNavigation(context,v,onEmergency:_sos),
     decoration:const InputDecoration(
      labelText:'Destination',
      hintText:'Place, street, or address',
@@ -1527,7 +1535,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    SizedBox(
     height:66,
     child:FilledButton.icon(
-     onPressed:()=>openNavigation(context,destination.text),
+     onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
      icon:const Icon(Icons.map_outlined,size:28),
      label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
