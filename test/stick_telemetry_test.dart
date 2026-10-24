@@ -44,6 +44,22 @@ void main() {
       expect(telemetry.rangeSensorStatus, 'unavailable');
     });
 
+    test('accepts only valid battery percentages', () {
+      final telemetry = StickTelemetry();
+
+      telemetry.fromJson({'battery_percent': 72});
+      expect(telemetry.battery, 72);
+
+      telemetry.fromJson({'battery_percent': 101});
+      expect(telemetry.battery, isNull);
+
+      telemetry.fromJson({'battery_percent': -1});
+      expect(telemetry.battery, isNull);
+
+      telemetry.fromJson({'battery_percent': 'unknown'});
+      expect(telemetry.battery, isNull);
+    });
+
     test('rejects non-numeric distance telemetry', () {
       final telemetry = StickTelemetry();
 
