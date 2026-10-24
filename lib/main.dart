@@ -28,9 +28,9 @@ Future<void> main() async {
  runApp(const BlindStickApp());
 }
 
-const navy = Color(0xFF17233B);
-const teal = Color(0xFF007F78);
-const pale = Color(0xFFEAF7F4);
+Color get navy => appHighContrast.value ? Colors.black : const Color(0xFF17233B);
+Color get teal => appHighContrast.value ? Colors.black : const Color(0xFF007F78);
+Color get pale => appHighContrast.value ? Colors.white : const Color(0xFFEAF7F4);
 const red = Color(0xFFB42318);
 const serviceUuid = '7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001';
 const telemetryUuid = '7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001';
@@ -94,15 +94,17 @@ class AuthGate extends StatelessWidget {
 class ProfilePendingPage extends StatelessWidget {
  final String email;const ProfilePendingPage({super.key,required this.email});
  @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
- const Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),const Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
+ Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
  Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:signOutSafely,icon:const Icon(Icons.logout),label:const Text('Sign out'))
  ])))));
 }
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
 class _LoginPageState extends State<LoginPage> {
+ @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
+ void _contrastChanged(){if(mounted)setState((){});}
  final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();bool hide=true,createAccount=false,busy=false;Role selectedRole=Role.patient;String? error,info;
- @override void dispose(){email.dispose();password.dispose();name.dispose();super.dispose();}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);email.dispose();password.dispose();name.dispose();super.dispose();}
  Future<void> submit() async {
   if(busy)return;
   if(email.text.trim().isEmpty||!email.text.contains('@')||password.text.length<6||(createAccount&&name.text.trim().isEmpty)){setState(()=>error=createAccount?'Enter your name, a valid email and a password of at least 6 characters.':'Enter your email and password (at least 6 characters).');return;}
@@ -149,7 +151,7 @@ class _LoginPageState extends State<LoginPage> {
        Icon(icon,size:32,color:selected?teal:navy),
        const SizedBox(width:14),
        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text(title,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
+        Text(title,style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
         const SizedBox(height:4),
         Text(detail,style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
        ])),
@@ -163,10 +165,10 @@ class _LoginPageState extends State<LoginPage> {
  }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
- const SizedBox(height:20),const Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
- Text(createAccount?'Create your account':'Welcome back',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
+ const SizedBox(height:20),Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
+ Text(createAccount?'Create your account':'Welcome back',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
  if(createAccount)...[
-  const Text('Choose how you’d like to use this app',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
+  Text('Choose how you’d like to use this app',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
   const SizedBox(height:12),
   _roleChoice(Role.patient,'Use my smart stick','Navigate, hear safety alerts and ask for help.',Icons.accessibility_new_rounded),
   const SizedBox(height:10),
@@ -176,7 +178,7 @@ class _LoginPageState extends State<LoginPage> {
  if(createAccount)...[TextField(controller:name,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12)],
  TextField(controller:email,keyboardType:TextInputType.emailAddress,autofillHints:const [AutofillHints.email],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Email address',prefixIcon:Icon(Icons.email_outlined))),const SizedBox(height:12),
  TextField(controller:password,obscureText:hide,autofillHints:createAccount?const [AutofillHints.newPassword]:const [AutofillHints.password],onSubmitted:(_)=>submit(),decoration:InputDecoration(labelText:'Password',helperText:createAccount?'Use at least 6 characters':'',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
- if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:const TextStyle(color:teal))),
+ if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:TextStyle(color:teal))),
  const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:busy?null:submit,icon:busy?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(createAccount?Icons.person_add_alt_1:Icons.arrow_forward),label:Text(busy?'Please wait…':createAccount?'Create account':'Sign in',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),
  if(!createAccount)Align(alignment:Alignment.centerRight,child:TextButton(onPressed:busy?null:resetPassword,child:const Text('Forgot password?'))),
  TextButton(onPressed:busy?null:()=>setState(() { createAccount=!createAccount; error=null; info=null; }),child:Text(createAccount?'Already have an account? Sign in':'New here? Create an account')),
@@ -452,9 +454,12 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   @override
   void initState() {
     super.initState();
+    appHighContrast.addListener(_contrastChanged);
     _query.text = widget.initialQuery ?? '';
     _initialize();
   }
+
+  void _contrastChanged(){if(mounted)setState((){});}
 
   Future<void> _initialize() async {
     final preferences = await SharedPreferences.getInstance();
@@ -1023,6 +1028,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
   @override
   void dispose() {
+    appHighContrast.removeListener(_contrastChanged);
     _positionSubscription?.cancel();
     _query.dispose();
     super.dispose();
@@ -1097,7 +1103,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
               children: [
-                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
+                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _query,
@@ -1120,7 +1126,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                 ),
                 if (_destinationLabel != null) ...[
                   const SizedBox(height: 12),
-                  Text('Destination: $_destinationLabel', style: const TextStyle(fontWeight: FontWeight.w700, color: navy)),
+                  Text('Destination: $_destinationLabel', style: TextStyle(fontWeight: FontWeight.w700, color: navy)),
                   if (_distanceMeters != null && _durationSeconds != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -1158,7 +1164,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                     label: Text(_offRoute ? 'Recalculate route before continuing' : 'Recalculate route from current location'),
                   ),
                 const SizedBox(height: 10),
-                const Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
+                Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
                 if (_steps.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
@@ -1216,7 +1222,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
 class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;int _selectedTab=0;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
- @override void initState(){super.initState();_load();_ensurePatientRecord();stick.addListener(_changed);}
+ @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
+ void _contrastChanged(){if(mounted)setState((){});}
  Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
  Future<void> _generatePairingCode() async {
   if(generatingCode)return;
@@ -1240,12 +1247,12 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    padding:const EdgeInsets.all(18),
    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0xFFDCE5E9))),
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    const Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
+    Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
     const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
     if(pairingCode!=null&&!expired)...[
-     Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:const TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
+     Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
      const SizedBox(height:8),
      Row(children:[
       Expanded(child:OutlinedButton.icon(onPressed:()=>Clipboard.setData(ClipboardData(text:pairingCode!)),icon:const Icon(Icons.copy),label:const Text('Copy code'))),
@@ -1290,7 +1297,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    }
   }
  }
- @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override
  Widget build(BuildContext c) {
   final t=stick.telemetry;
@@ -1593,7 +1600,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
      label:'Device event: $event',
      child:ListTile(
       contentPadding:EdgeInsets.zero,
-      leading:const Icon(Icons.circle,size:12,color:teal),
+      leading:Icon(Icons.circle,size:12,color:teal),
       title:Text(event,style:const TextStyle(fontSize:15)),
      ),
     )),
@@ -1607,14 +1614,14 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    Icon(icon,color:color,size:28),
    const SizedBox(width:12),
    Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Text(title,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
+    Text(title,style:TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
     const SizedBox(height:5),
     Text(value,style:const TextStyle(fontSize:15,color:Color(0xFF59697B))),
    ])),
   ]),
  );
 
- Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:const TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
+ Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
 }
 
 class CaregiverPage extends StatefulWidget{
@@ -1623,7 +1630,9 @@ class CaregiverPage extends StatefulWidget{
 }
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
- @override void dispose(){codeController.dispose();super.dispose();}
+ @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
+ void _contrastChanged(){if(mounted)setState((){});}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
  Future<void> _pair()async{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
@@ -1650,10 +1659,10 @@ class _CaregiverPageState extends State<CaregiverPage>{
       Text('Stay connected, with permission.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
       SizedBox(height:8),Text('Enter the one-time code shared by the person using BlindStick Companion. They control who can connect.',style:TextStyle(color:Colors.white70,fontSize:15))
      ])),
-     const SizedBox(height:22),const Text('Pair with someone',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+     const SizedBox(height:22),Text('Pair with someone',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
      TextField(controller:codeController,keyboardType:TextInputType.number,maxLength:8,autofillHints:const [],textInputAction:TextInputAction.done,onSubmitted:(_)=>_pair(),decoration:const InputDecoration(labelText:'8-digit pairing code',hintText:'Enter the shared code',prefixIcon:Icon(Icons.key_outlined))),
      if(pairingError!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingError!,style:const TextStyle(color:red))),
-     if(pairingInfo!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingInfo!,style:const TextStyle(color:teal))),
+     if(pairingInfo!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingInfo!,style:TextStyle(color:teal))),
      const SizedBox(height:8),SizedBox(height:56,child:FilledButton.icon(onPressed:pairing?null:_pair,icon:pairing?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.link),label:Text(pairing?'Connecting…':'Connect securely',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)))),
      const SizedBox(height:16),const Text('Codes expire after 10 minutes and work once. An account can connect to one patient at a time in this version.',style:TextStyle(color:Color(0xFF64748B))),
     ]);}
@@ -1674,11 +1683,11 @@ class _CaregiverPageState extends State<CaregiverPage>{
         Text('Connected to $name',style:const TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
         const SizedBox(height:8),const Text('You are linked with permission. Updates appear here when they are shared.',style:TextStyle(color:Colors.white70,fontSize:15))
        ])),
-       const SizedBox(height:20),const Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),const Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+       const SizedBox(height:20),Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
        if(location is Map&&location['recordedAt'] is Timestamp)Padding(padding:const EdgeInsets.only(top:4),child:Text('Updated ${(location['recordedAt'] as Timestamp).toDate().toLocal()}',style:const TextStyle(color:Color(0xFF64748B)))),
        const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('View location in in-app map'))),
-       const SizedBox(height:22),const Text('Recent alerts',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+       const SizedBox(height:22),Text('Recent alerts',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
         stream:FirebaseFirestore.instance.collection('patients').doc(patientUid).collection('alerts').orderBy('createdAt',descending:true).limit(8).snapshots(),
         builder:(context,alerts){
@@ -1750,14 +1759,14 @@ class _SettingsPageState extends State<SettingsPage>{
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
   body:ListView(padding:const EdgeInsets.all(20),children:[
-   const Text('Set BlindStick Companion up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
+   Text('Set BlindStick Companion up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('These controls work on this phone and are saved automatically.'),
    const SizedBox(height:24),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Spoken safety guidance',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Speak warnings and important status messages'),value:voice,onChanged:_saveVoice),
    const SizedBox(height:10),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('High contrast',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Use a black-and-white colour scheme for low vision'),value:highContrast,onChanged:_saveHighContrast),
    const SizedBox(height:22),
-   const Text('Text size',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800,color:navy)),
+   Text('Text size',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800,color:navy)),
    const SizedBox(height:4),const Text('Make labels and instructions easier to read. Android display and TalkBack settings also continue to work.'),
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
@@ -1773,14 +1782,14 @@ class _SettingsPageState extends State<SettingsPage>{
      TextField(controller:footRouterUrlController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Foot-routing URL prefix',helperText:'Must end with an OSRM-compatible /route/v1/driving endpoint')),
      const SizedBox(height:10),
      SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_saveMapServices,icon:const Icon(Icons.save_outlined),label:const Text('Save map service settings'))),
-     if(saved!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(saved!,style:const TextStyle(color:navy))),
+     if(saved!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(saved!,style:TextStyle(color:navy))),
      const Padding(padding:EdgeInsets.only(bottom:8),child:Text('Use servers whose terms you have checked. Public community services are best-effort and rate-limited.',style:TextStyle(color:Color(0xFF59697B)))),
     ],
    ),
    const SizedBox(height:22),
    OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
    const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
-   const SizedBox(height:24),const Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
+   const SizedBox(height:24),Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
    const SizedBox(height:20),const Text('Safety note',style:TextStyle(color:Color(0xFF64748B))),
    const Text('BlindStick Companion is a companion prototype, not a certified mobility aid. Keep using your usual mobility skills and emergency arrangements. The app cannot guarantee GPS accuracy, network availability or emergency delivery.',style:TextStyle(color:Color(0xFF64748B))),
