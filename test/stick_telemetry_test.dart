@@ -3,28 +3,23 @@ import 'package:blindstick_companion/main.dart';
 
 void main() {
   group('StickTelemetry', () {
-    test('accepts only the firmware protocol and device identity', () {
-      expect(
-        isCompatibleStickTelemetry({
-          'protocol': 1,
-          'device': 'blindstick_companion-esp32cam',
-        }),
-        isTrue,
-      );
-      expect(
-        isCompatibleStickTelemetry({
-          'protocol': 2,
-          'device': 'blindstick_companion-esp32cam',
-        }),
-        isFalse,
-      );
-      expect(
-        isCompatibleStickTelemetry({
-          'protocol': 1,
-          'device': 'some-other-device',
-        }),
-        isFalse,
-      );
+    test('accepts only complete telemetry from the expected firmware', () {
+      final packet = <String, dynamic>{
+        'protocol': 1,
+        'device': 'blindstick_companion-esp32cam',
+        'assistance': false,
+        'camera_ready': true,
+        'camera_frame_available': false,
+        'detection_status': 'runs_on_android_phone',
+        'range_sensor_status': 'unavailable',
+        'battery_status': 'unavailable',
+      };
+      expect(isCompatibleStickTelemetry(packet), isTrue);
+      expect(isCompatibleStickTelemetry({...packet, 'protocol': 2}), isFalse);
+      expect(isCompatibleStickTelemetry({...packet, 'device': 'other'}), isFalse);
+      expect(isCompatibleStickTelemetry({...packet}..remove('range_sensor_status')), isFalse);
+      expect(isCompatibleStickTelemetry({...packet, 'range_sensor_status': 'unknown'}), isFalse);
+      expect(isCompatibleStickTelemetry({...packet, 'assistance': 'yes'}), isFalse);
     });
 
     test('does not invent a battery percentage when firmware says unavailable', () {
