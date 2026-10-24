@@ -41,8 +41,9 @@ SOFTWARE.
 Model: quantized SSD MobileNet V1 trained for the COCO object classes.
 Source: TensorFlow Lite hosted model archive
 URL: https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip
+License: Apache 2.0, consistent with TensorFlow's published SSD MobileNet V1 TFLite model listing: https://www.kaggle.com/models/tensorflow/ssd-mobilenet-v1/tfLite
 
-This project downloads and caches the general detector in app-private storage. The downloaded file is checked for a valid TFLite FlatBuffer header, while the pedestrian-signal model is additionally checked against the SHA-256 above. Confirm the upstream model license/terms and model provenance before redistribution or commercial use.
+This project downloads and caches the general detector in app-private storage. The downloaded file is checked for a valid TFLite FlatBuffer header; unlike the pedestrian-signal model, the current general-model download does not yet pin a SHA-256 checksum.
 
 Important usage boundary
 
