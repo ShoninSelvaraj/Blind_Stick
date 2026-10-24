@@ -1,105 +1,115 @@
-# BlindStick Companion — accessible blind-stick companion
+# BlindStick Companion — zero-budget accessible mobility companion
 
-Flutter Android app for the BlindStick Companion blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
+Flutter Android prototype for a smart-stick project. It is designed for people who are blind or have low vision, with spoken prompts, large controls, adjustable text, high-contrast mode, and TalkBack-compatible controls.
 
-## Respectful onboarding
+## Zero-cost operating approach
 
-Registration asks **what you want to do with BlindStick Companion**, not how to describe yourself:
+The app does not require Google Maps SDK, Google Maps API keys, paid map APIs, or Firebase Cloud Functions to run the current features.
 
-- **Use my smart stick** — navigation, device status, safety alerts and SOS.
-- **Support someone I care about** — view updates only after the other person chooses to share access.
+| Feature | Current zero-cost option | Important limit |
+|---|---|---|
+| Sign-in and account roles | Firebase Authentication email/password | Subject to Firebase plan and service terms |
+| Profiles, pairing, alerts, shared locations | Cloud Firestore on Spark | Read/write/storage limits apply; the service can stop writes if limits are exceeded |
+| Map shown inside this app | `flutter_map` + OpenStreetMap tiles | Public tiles are best-effort and usage policy applies |
+| Search a typed destination | Public Nominatim geocoder | User-triggered search only, no autocomplete, max 1 request/second per app; results/service can be unavailable |
+| Walking route | OpenStreetMap community foot-routing server | Community demo server: no SLA and limited reasonable use; do not treat it as safety-certified |
+| Voice guidance | Android text-to-speech through `flutter_tts` | Device voice availability and language settings vary |
+| Emergency alert | Save SOS in Firestore and optionally open the phone's SMS composer | SMS is **not sent automatically**; the user must select a recipient and tap send. Carrier SMS costs may apply |
+| Background push notification | Not included in zero-billing mode | Sending FCM push messages requires a trusted sender/server. No automatic background push is claimed |
+| Object / traffic-light / crowd AI | Not yet implemented in this prototype | Current ESP32-CAM firmware is a camera/BLE bridge, not a trained detection model |
 
-The app uses clear wording, TalkBack-compatible controls, spoken pairing-code output, large primary actions, high contrast, and a saved text-size control (100–160%). Voice guidance can be turned off separately.
+**Zero budget means no required paid service in this design; it does not mean unlimited capacity or guaranteed availability.** Do not use public community servers for high-volume or mission-critical navigation. If the project grows, self-host OpenStreetMap-derived services on hardware you already control, or use a provider only after checking its terms and price.
 
-## Firebase configuration
+## Accessibility
 
-Project: `blindstick001`, Android package: `com.vimal.blindstick`. The Firebase Android config is `android/app/google-services.json`.
+- Register by choosing the task: **Use my smart stick** or **Support someone I care about**. This is an app role, not identity or disability verification.
+- Primary actions have clear text labels and large touch targets.
+- Settings offers spoken guidance, text scaling (100–160%), and high-contrast black/white colors.
+- Android TalkBack and system display settings remain available.
+- Navigation instructions are available both as readable text and spoken prompts. Tapping an instruction speaks it.
+- Sign out is visible on the patient and caregiver home bars and is also available in settings.
+- Avoid relying on the map alone. Keep the spoken/written instructions and status messages available to people who cannot see the map.
 
-In Firebase Console, enable **Authentication → Sign-in method → Email/Password** and create/enable your Firestore database. Deploy the rules and server function when you're ready:
+## Firebase setup — no Cloud Functions
 
-```bash
-npm install -g firebase-tools
-firebase login
-firebase use blindstick001
-firebase deploy --only firestore:rules,functions
+Firebase project: `blindstick001`; Android package: `com.vimal.blindstick`.
+
+1. In Firebase Console, enable **Authentication → Sign-in method → Email/Password** and make sure the Firestore database is created.
+2. Download the genuine Android `google-services.json` for package `com.vimal.blindstick` from Project settings, and put it at `android/app/google-services.json`.
+3. Sign in to the Firebase CLI and deploy only the rules:
+
+```powershell
+firebase.cmd login
+firebase.cmd use blindstick001
+firebase.cmd deploy --only firestore:rules
 ```
 
-The deployment needs an eligible Firebase/Google Cloud billing setup for Cloud Functions. Confirm that the active Firebase CLI account and target project are correct before deployment.
+The root `firebase.json` intentionally excludes Cloud Functions so the recommended deploy command does not trigger a billing-plan upgrade. Do **not** run `firebase deploy --only functions` in the zero-billing setup.
 
-To build/run the mobile app:
-
-```bash
-git pull origin main
-flutter clean
-flutter pub get
-flutter analyze
-flutter run
-flutter build apk --release
-```
-
-The repository's GitHub Actions workflow runs Dart analysis and a debug Android build on pushes to `main`.
-
-## Role and pairing flow
-
-Users choose their app role during registration. This choice changes the experience; it is not identity verification.
+## Account pairing
 
 ### Person using the stick
+
 1. Create an account and choose **Use my smart stick**.
 2. The app creates `patients/{yourFirebaseUid}`.
-3. Under **Connect someone you trust**, create a pairing code. It is 8 digits, expires after 10 minutes, can be used once, and can be copied or spoken.
-4. Share the code only with someone you want to authorize.
+3. Under **Connect someone you trust**, create a private 8-digit pairing code.
+4. The code expires after 10 minutes and can be used once. Speak or copy it and share it only with the person you authorize.
 
-### Person supporting someone
+### Caregiver
+
 1. Create an account and choose **Support someone I care about**.
-2. Enter the pairing code the other person shared.
-3. The app atomically redeems it and links the accounts.
-4. The caregiver screen streams the linked patient's location, device status and alerts from Firestore.
+2. Enter the code the patient shared.
+3. The accounts link, and the caregiver can view the shared patient location and alert records.
 
-Each patient can have at most **two linked caregivers**. This version lets a caregiver account connect to one patient at a time. A patient controls whom to pair with by deciding whether to share the code; an account that merely selects the caregiver role cannot read anyone's data.
+A patient can link at most two caregivers. A caregiver account can connect to one patient at a time in this version. A caregiver role alone does not grant access.
 
-## Firestore data and security
+## In-app map and navigation
 
-- `users/{uid}`: personal profile and self-selected role; users can read only their own profile.
-- `users/{uid}/fcmTokens/primary`: that signed-in user's FCM token; only that account can read/write it.
-- `patients/{patientUid}`: patient owner UID, display name, caregiver UID list, latest shared location and device status.
-- `patients/{patientUid}/locations/{locationId}`: location history. Only the patient can write; patient and linked caregivers can read.
-- `patients/{patientUid}/alerts/{alertId}`: SOS and system events. Only the patient can create; patient and linked caregivers can read.
-- `pairingCodes/{code}`: single-use, expiring codes; listing is denied.
-- `pairingClaims/{caregiverUid}`: one active pairing claim per caregiver; accessible only to that caregiver.
+The map and route preview are rendered inside BlindStick Companion using the open-source Flutter map client and OpenStreetMap-derived services. Patient navigation and the caregiver's shared-location action open this in-app view rather than switching to Google Maps.
 
-The deployed `firestore.rules` limits the caregiver list to two and ties reads to Auth UIDs. Test the rules with a patient, two linked caregivers, and an unrelated third account before field use. Firebase project owners/admins can still access data through privileged administrative tools, so restrict console/admin access.
+- Map tiles: [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/). Visible attribution must remain on the map. The official tile server is community funded, best-effort, and may block abusive or excessive usage.
+- Destination search: [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/). The app requests a search only after the user taps Search; it does not autocomplete. Public Nominatim limits apply across all users of the app, so the implementation rate-limits requests and should be replaced with a self-hosted or appropriately licensed geocoder before use at larger scale.
+- Walking directions: the public [OpenStreetMap routing service](https://routing.openstreetmap.de/). This is a community service with no uptime or latency guarantee. Access and policy may change.
 
-## Navigation
+GPS, network availability and public map services can fail. Route instructions are approximate and are not proof that a road crossing, path, or obstacle is safe. **Do not rely on this prototype as the sole mobility aid.** Test routes with a sighted supervisor before field use, keep established mobility practices, and stop if the spoken location is uncertain. The app does not perform guaranteed off-route detection or automatic route recalculation.
 
-The app opens Google Maps walking navigation immediately with the destination, using the native Maps navigation URI and falling back to a web directions link if needed. Maps itself handles live GPS, turn-by-turn voice guidance and rerouting. This avoids waiting for an additional app-side location fix before opening directions, but **zero lag cannot be guaranteed**: GPS availability, network quality, phone performance and Maps availability still matter. Download offline maps in Google Maps ahead of time for areas with unreliable connectivity.
+## SOS behavior without paid backend
 
-## Location sharing and SOS alerts
+When the patient taps SOS, the app attempts to save an alert record to Firestore. When the caregiver app is open and connected, its Firestore listener can show the alert. This is not the same as a background push notification and does not mean the caregiver has seen it.
 
-Location sharing is opt-in. While BlindStick Companion remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
+After a successful save, **Share by SMS** opens the device's SMS composer with a help message and the current coordinates if available. The patient must select a contact and send the message. If the person cannot do that safely, use their established emergency-contact method. The app does not call emergency services and cannot confirm that help has been dispatched.
 
-An SOS is first saved in `patients/{patientUid}/alerts`. If the Cloud Function has been deployed and the caregiver has a valid FCM token, the function attempts a push notification for the linked caregivers only. The alert records delivery-attempt status/counts. FCM cannot guarantee that a phone receives the message or that the person sees it; notification permissions, battery restrictions and connectivity matter. The patient is warned to use their usual emergency contact method as well.
+Firebase Cloud Messaging itself has a no-cost tier, but sending notifications requires a trusted server or sender. Cloud Functions deployment is intentionally omitted because this project requires a no-billing setup.
 
-To deploy notifications, use the root `firebase.json` and `functions/index.js`:
-
-```bash
-firebase deploy --only firestore:rules,functions
-```
-
-Check `functions/README.md` for deployment notes. Do not treat an accepted Firestore write as proof an emergency responder was contacted.
-
-## BLE and the photographed ESP32-CAM board
+## BLE and ESP32-CAM status
 
 BLE service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
 
 - Telemetry Notify: `7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001`
 - Command Write: `7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001`
 
-The repository includes a starter camera/BLE bridge in `firmware/esp32_cam/esp32_cam_ble_bridge.ino`. It initializes the camera, captures frames and sends honest device status. It does **not** contain a trained model for object detection, traffic-light recognition or crowd classification. The app displays that status instead of inventing predictions.
+Firmware path: `firmware/esp32_cam/esp32_cam_ble_bridge.ino`.
 
-Ultrasonic distance, battery telemetry and a physical vibration motor also need the actual sensors, confirmed pin assignments and driver circuit. The image appears to show an ESP32-CAM-style board with no USB port; initial programming typically needs a USB-to-TTL adapter. Follow `firmware/esp32_cam/README.md` and confirm the exact board revision before wiring. This project has not been physically tested against your hardware.
+The current firmware initializes the camera, captures frames and reports device status. It **does not** include a trained model for object detection, traffic-light recognition or crowd classification. Ultrasonic distance, battery telemetry and physical vibration also require confirmed sensors, wiring and firmware. No results should be treated as real unless the connected hardware transmits them. The board and app have not been physically validated together.
 
-## Verification boundary
+## Run the app
 
-GitHub Actions checks that Dart analysis is clean and the Android debug app builds. Those automated checks do not verify BLE pairing, GPS accuracy, physical sensors, camera AI, notification delivery, or accessibility with real users. The stick still needs BLE bonding/owner authorization; Firestore rules do not protect the Bluetooth radio itself.
+```powershell
+git pull origin main
+flutter clean
+flutter pub get
+flutter analyze
+flutter run
+```
 
-BlindStick Companion is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
+To build a release APK:
+
+```powershell
+flutter build apk --release
+```
+
+GitHub Actions checks Dart analysis and Android buildability. CI cannot verify GPS accuracy, map server availability, BLE security, physical sensors, TTS accessibility for individual users, or emergency-message delivery. Conduct supervised accessibility and safety tests before any real-world use.
+
+## Data security notes
+
+Firestore rules restrict user profile access, patient location and alert reads, one-time pairing codes, and caregiver pairing. Test with the patient account, linked caregiver account(s), and an unrelated account. Keep Firebase console/admin access restricted because project administrators can access data through privileged tools. BLE bonding and radio-level owner authorization are not yet implemented.
