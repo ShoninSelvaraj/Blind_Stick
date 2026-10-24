@@ -1107,9 +1107,15 @@ class _CaregiverPageState extends State<CaregiverPage>{
 class SettingsPage extends StatefulWidget{const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
 class _SettingsPageState extends State<SettingsPage>{
  bool voice=true,highContrast=false;double textScale=1.0;String? saved;
+ final tileUrlController=TextEditingController(text:defaultMapTileUrl);
+ final geocoderUrlController=TextEditingController(text:defaultGeocoderBaseUrl);
+ final footRouterUrlController=TextEditingController(text:defaultFootRouterBaseUrl);
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{
   final prefs=await SharedPreferences.getInstance();if(!mounted)return;
+  tileUrlController.text=prefs.getString('map_tiles_url')??defaultMapTileUrl;
+  geocoderUrlController.text=prefs.getString('map_geocoder_url')??defaultGeocoderBaseUrl;
+  footRouterUrlController.text=prefs.getString('map_foot_router_url')??defaultFootRouterBaseUrl;
   setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; highContrast=prefs.getBool('high_contrast')??false; });
   voiceGuidanceEnabled=voice;appTextScale.value=textScale;appHighContrast.value=highContrast;
  }
@@ -1125,6 +1131,25 @@ class _SettingsPageState extends State<SettingsPage>{
   setState(()=>highContrast=value);appHighContrast.value=value;
   final prefs=await SharedPreferences.getInstance();await prefs.setBool('high_contrast',value);
  }
+ Future<void> _saveMapServices() async {
+  final tiles=tileUrlController.text.trim();
+  final geocoder=Uri.tryParse(geocoderUrlController.text.trim());
+  final router=Uri.tryParse(footRouterUrlController.text.trim());
+  if(!tiles.contains('{z}')||!tiles.contains('{x}')||!tiles.contains('{y}')||
+     geocoder==null||!geocoder.hasScheme||geocoder.host.isEmpty||
+     router==null||!router.hasScheme||router.host.isEmpty) {
+    setState(()=>saved='Check the tile template and enter valid geocoder/router base URLs.');
+    return;
+  }
+  final prefs=await SharedPreferences.getInstance();
+  await prefs.setString('map_tiles_url',tiles);
+  await prefs.setString('map_geocoder_url',geocoder.toString().replaceAll(RegExp(r'/+$'),''));
+  await prefs.setString('map_foot_router_url',router.toString().replaceAll(RegExp(r'/+$'),''));
+  if(mounted)setState(()=>saved='Map service settings saved on this phone. Reopen navigation to use them.');
+ }
+ @override void dispose(){
+  tileUrlController.dispose();geocoderUrlController.dispose();footRouterUrlController.dispose();super.dispose();
+ }
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
   body:ListView(padding:const EdgeInsets.all(20),children:[
@@ -1139,7 +1164,24 @@ class _SettingsPageState extends State<SettingsPage>{
    const SizedBox(height:4),const Text('Make labels and instructions easier to read. Android display and TalkBack settings also continue to work.'),
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
-   const SizedBox(height:22),OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
+   const SizedBox(height:18),
+   ExpansionTile(
+    title:const Text('Map services (advanced)',style:TextStyle(fontWeight:FontWeight.w800)),
+    subtitle:const Text('Change map/search/routing servers without updating the app'),
+    children:[
+     TextField(controller:tileUrlController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Map tile URL template',helperText:'Must include {z}, {x}, and {y}')),
+     const SizedBox(height:10),
+     TextField(controller:geocoderUrlController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Geocoder base URL',helperText:'The app adds /search and query parameters')),
+     const SizedBox(height:10),
+     TextField(controller:footRouterUrlController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Foot-routing URL prefix',helperText:'Must end with an OSRM-compatible /route/v1/driving endpoint')),
+     const SizedBox(height:10),
+     SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_saveMapServices,icon:const Icon(Icons.save_outlined),label:const Text('Save map service settings'))),
+     if(saved!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(saved!,style:const TextStyle(color:navy))),
+     const Padding(padding:EdgeInsets.only(bottom:8),child:Text('Use servers whose terms you have checked. Public community services are best-effort and rate-limited.',style:TextStyle(color:Color(0xFF59697B)))),
+    ],
+   ),
+   const SizedBox(height:22),
+   OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
    const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
    const SizedBox(height:24),const Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
