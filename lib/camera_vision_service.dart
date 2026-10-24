@@ -399,7 +399,9 @@ class CameraVisionService extends ChangeNotifier {
     required String side,
     required bool urgent,
   }) async {
-    final count = side == 'left' ? 1 : side == 'right' ? 2 : 3;
+    // Urgent range readings override side coding: one long pulse avoids
+    // ambiguous multi-pulse cues while the local stop pattern is active.
+    final count = urgent ? 1 : side == 'left' ? 1 : side == 'right' ? 2 : 3;
     final pulseMs = urgent ? 260 : 100;
     for (var i = 0; i < count; i++) {
       await vibrate(pulseMs);
