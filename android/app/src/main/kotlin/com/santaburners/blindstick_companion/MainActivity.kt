@@ -277,6 +277,22 @@ class MainActivity : FlutterActivity() {
             destination.delete()
         }
 
+        // This model is bundled into the APK and is not fetched by end users.
+        assets.open("vision-model/pedestrian-signal-yolo26n-7cls-int8-320.tflite").use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output -> input.copyTo(output) }
+        }
+        if (destination.length() > 2_000_000 && sha256(destination) == pedestrianSignalSha256) {
+            FileInputStream(destination).use { input ->
+                val header = ByteArray(8)
+                if (input.read(header) == header.size && String(header, 4, 4, Charsets.US_ASCII) == "TFL3") {
+                    return destination
+                }
+            }
+        }
+        destination.delete()
+        throw IllegalStateException("The built-in pedestrian-signal model failed its integrity check. Reinstall the app.")
+
+        @Suppress("UNREACHABLE_CODE")
         val temporary = File(destination.parentFile, "pedestrian-signal.tflite.part")
         val connection = (URL(pedestrianSignalModelUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
@@ -318,6 +334,23 @@ class MainActivity : FlutterActivity() {
     private fun ensureModelFile(): File {
         val destination = modelFile()
         if (destination.exists() && destination.length() > 100_000) return destination
+
+        // The Gradle build embeds the model in the APK; copy it locally for TFLite.
+        assets.open("vision-model/detect.tflite").use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output -> input.copyTo(output) }
+        }
+        FileInputStream(destination).use { input ->
+            val header = ByteArray(8)
+            if (input.read(header) != header.size || String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                destination.delete()
+                throw IllegalStateException("The built-in obstacle-detection model is damaged. Reinstall the app.")
+            }
+        }
+        if (destination.length() > 100_000) return destination
+        destination.delete()
+        throw IllegalStateException("The built-in obstacle-detection model is missing. Reinstall the app.")
+
+        @Suppress("UNREACHABLE_CODE")
         val zipFile = File(cacheDir, "coco-ssd-mobile-net.zip")
         val connection = (URL(modelZipUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
