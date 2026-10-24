@@ -1,12 +1,12 @@
-# Saathi — accessible blind-stick companion
+# DishaFlow — accessible blind-stick companion
 
-Flutter Android app for the Saathi blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
+Flutter Android app for the DishaFlow blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
 
 ## Respectful onboarding
 
-Registration asks **what you want to do with Saathi**, not how to describe yourself:
+Registration asks **what you want to do with DishaFlow**, not how to describe yourself:
 
-- **Use my Saathi stick** — navigation, device status, safety alerts and SOS.
+- **Use my smart stick** — navigation, device status, safety alerts and SOS.
 - **Support someone I care about** — view updates only after the other person chooses to share access.
 
 The app uses clear wording, TalkBack-compatible controls, spoken pairing-code output, large primary actions, high contrast, and a saved text-size control (100–160%). Voice guidance can be turned off separately.
@@ -44,7 +44,7 @@ The repository's GitHub Actions workflow runs Dart analysis and a debug Android 
 Users choose their app role during registration. This choice changes the experience; it is not identity verification.
 
 ### Person using the stick
-1. Create an account and choose **Use my Saathi stick**.
+1. Create an account and choose **Use my smart stick**.
 2. The app creates `patients/{yourFirebaseUid}`.
 3. Under **Connect someone you trust**, create a pairing code. It is 8 digits, expires after 10 minutes, can be used once, and can be copied or spoken.
 4. Share the code only with someone you want to authorize.
@@ -75,7 +75,7 @@ The app opens Google Maps walking navigation immediately with the destination, u
 
 ## Location sharing and SOS alerts
 
-Location sharing is opt-in. While Saathi remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
+Location sharing is opt-in. While DishaFlow remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
 
 An SOS is first saved in `patients/{patientUid}/alerts`. If the Cloud Function has been deployed and the caregiver has a valid FCM token, the function attempts a push notification for the linked caregivers only. The alert records delivery-attempt status/counts. FCM cannot guarantee that a phone receives the message or that the person sees it; notification permissions, battery restrictions and connectivity matter. The patient is warned to use their usual emergency contact method as well.
 
@@ -102,4 +102,4 @@ Ultrasonic distance, battery telemetry and a physical vibration motor also need 
 
 GitHub Actions checks that Dart analysis is clean and the Android debug app builds. Those automated checks do not verify BLE pairing, GPS accuracy, physical sensors, camera AI, notification delivery, or accessibility with real users. The stick still needs BLE bonding/owner authorization; Firestore rules do not protect the Bluetooth radio itself.
 
-Saathi is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
+DishaFlow is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
