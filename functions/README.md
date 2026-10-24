@@ -1,25 +1,20 @@
-# Firebase Cloud Function — BlindStick Companion SOS push
+# Optional Cloud Function reference — not part of the zero-budget deployment
 
-This function sends a background Firebase Cloud Messaging notification when an authorized patient writes a new `sos` alert to `patients/{patientUid}/alerts/{alertId}`.
+This folder preserves a reference implementation of server-triggered Firebase Cloud Messaging for SOS alerts. **It is intentionally not configured in the root `firebase.json` and is not deployed by the supported zero-billing setup.**
 
-## Deploy
+Firebase Spark mode is the project's requirement. Since a trusted sender/server is required to send background FCM notifications and Cloud Functions deployment requires Blaze billing, this reference function is inactive.
 
-From the repository root:
+## Zero-budget behavior
 
-```bash
-firebase login
-firebase deploy --only firestore:rules,functions
+- SOS alerts are written to Firestore.
+- A linked caregiver can see them while their app is open and connected.
+- After the alert is saved, the patient can open the device SMS composer and choose a trusted contact. The user must select the recipient and send the message.
+- The app does not claim that an automatic background push was sent, that a caregiver has seen an alert, or that emergency services were contacted.
+
+The app's root deployment is restricted to Firestore rules:
+
+```powershell
+firebase.cmd deploy --only firestore:rules
 ```
 
-The project must have billing enabled as required by Firebase Cloud Functions/Cloud Build. Confirm the target project is `blindstick001` before deploying.
-
-## Behaviour
-
-- Reads the patient record and its explicitly linked `caregiverUids`.
-- Loads only those users' `fcmTokens/primary` records.
-- Sends an FCM notification with high Android priority.
-- Writes an attempt result to the SOS alert document (`sent`, `failed`, `no_linked_caregivers`, or `no_registered_devices`).
-- Removes invalid/unregistered tokens.
-- Does not trust a recipient or FCM token supplied in the SOS request.
-
-This function does not guarantee delivery or that a person has seen the notification. FCM/APNs delivery, Android notification permissions, phone battery restrictions, network availability, and Firebase deployment configuration still matter. Test notifications on physical devices before emergency use.
+Do not deploy this function unless the project owner has explicitly chosen and can fund a billing-enabled Firebase/Google Cloud configuration. Even when deployed, push delivery is not guaranteed and must not be the only emergency mechanism.
