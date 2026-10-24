@@ -1943,12 +1943,12 @@ class _CaregiverPageState extends State<CaregiverPage>{
    WidgetsBinding.instance.addPostFrameCallback((_) {
     if (!mounted) return;
     HapticFeedback.heavyImpact();
-    unawaited(stick.announce('Emergency alert received from ${widget.user.name}. $detail. Check the shared location and contact the person.'));
+    unawaited(stick.announce('A new emergency alert has arrived from your linked person. $detail. Check the shared location and contact them.'));
     ScaffoldMessenger.of(context).showSnackBar(
      SnackBar(
       content:Text('Emergency alert: $detail'),
       duration:const Duration(seconds:12),
-      action:SnackBarAction(label:'View alerts',onPressed:()=>ScaffoldMessenger.of(context).hideCurrentSnackBar()),
+      action:SnackBarAction(label:'Dismiss',onPressed:()=>ScaffoldMessenger.of(context).hideCurrentSnackBar()),
      ),
     );
    });
