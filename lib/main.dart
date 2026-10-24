@@ -398,6 +398,7 @@ class CameraVisionService extends ChangeNotifier {
   bool _processing = false;
   bool _running = false;
   bool _modelReady = false;
+  bool preparing = false;
   bool _cameraReachable = false;
   int _failedFrames = 0;
   DateTime _lastCueAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -1918,11 +1919,12 @@ class _SettingsPageState extends State<SettingsPage>{
   }
 
   Future<void> prepareModel() async {
-    if (_modelReady) {
-      status = 'On-device AI model already downloaded';
+    if (_modelReady || preparing) {
+      if (_modelReady) status = 'On-device AI model already downloaded';
       notifyListeners();
       return;
     }
+    preparing = true;
     status = 'Downloading the one-time AI model. Keep internet available…';
     notifyListeners();
     try {
@@ -1937,8 +1939,10 @@ class _SettingsPageState extends State<SettingsPage>{
     } catch (error) {
       _modelReady = false;
       status = 'AI setup failed: $error';
+    } finally {
+      preparing = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> saveEndpoint(String value) async {
@@ -1986,7 +1990,6 @@ class _SettingsPageState extends State<SettingsPage>{
 
   Future<void> start() async {
     if (_running) return;
-    await initialize();
     if (!_modelReady) {
       status = 'Prepare the on-device AI model while internet is available first.';
       notifyListeners();
@@ -2001,6 +2004,7 @@ class _SettingsPageState extends State<SettingsPage>{
   }
 
   void stop() {
+    if (!_running && _timer == null) return;
     _timer?.cancel();
     _timer = null;
     _running = false;
@@ -2036,6 +2040,8 @@ class _SettingsPageState extends State<SettingsPage>{
           .toList(growable: false);
       personCount = (result['personCount'] as num?)?.toInt() ?? 0;
       crowdLevel = (result['crowdLevel'] ?? 'unknown').toString();
+      final trafficDetections = detections.where((d) => d['label'] == 'traffic light');
+      trafficState = trafficDetections.isEmpty ? 'not_detected' : (trafficDetections.first['trafficState'] ?? 'unknown').toString();
       _cameraReachable = true;
       _failedFrames = 0;
       status = 'Detecting locally • ${detections.length} objects • ${personCount} people • crowd $crowdLevel';
@@ -2076,7 +2082,8 @@ class _SettingsPageState extends State<SettingsPage>{
       }
     }
 
-    final traffic = highConfidence.where((d) => d['label'] == 'traffic light').cast<Map<String, dynamic>>().firstOrNull;
+    final trafficOptions = highConfidence.where((d) => d['label'] == 'traffic light').toList();
+    final Map<String, dynamic>? traffic = trafficOptions.isEmpty ? null : trafficOptions.first;
     final String cueKey;
     final String spoken;
     if (obstacle != null) {
@@ -2116,11 +2123,10 @@ class _SettingsPageState extends State<SettingsPage>{
         HapticFeedback.heavyImpact();
         stick.pulseVibration(durationMs: obstacle != null ? 300 : 180);
         stick.announce(spoken);
-        ApiService.instance.event(
-          FirebaseAuth.instance.currentUser?.uid ?? '',
-          'vision',
-          spoken,
-        ).catchError((_) {});
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        if (currentUid != null) {
+          ApiService.instance.event(currentUid, 'vision', spoken).catchError((_) {});
+        }
       }
     }
   }
