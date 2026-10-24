@@ -1567,6 +1567,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  void _contrastChanged(){if(mounted)setState((){});}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
  Future<void> _ensurePatientRecord() async {
+  if(mounted)setState(()=>_patientRecordError=null);
   try {
    final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid);
    final snap=await ref.get();
@@ -1621,8 +1622,12 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
-    const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
+    const Text('Create a private one-time code for a caregiver. It expires in about 9 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
+    if(!_patientRecordReady)
+     Padding(padding:const EdgeInsets.only(bottom:10),child:Text(_patientRecordError??'Preparing your secure account connection…',style:TextStyle(color:_patientRecordError==null?const Color(0xFF59697B):red))),
+    if(_patientRecordError!=null)
+     Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:_ensurePatientRecord,icon:const Icon(Icons.refresh),label:const Text('Retry account setup'))),
     if(pairingCode!=null&&!expired)...[
      Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
      const SizedBox(height:8),
@@ -1632,7 +1637,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
       Expanded(child:OutlinedButton.icon(onPressed:()=>stick.announce('Your pairing code is ${pairingCode!.split('').join(' ')}'),icon:const Icon(Icons.volume_up),label:const Text('Hear code'))),
      ]),
     ],
-    SizedBox(width:double.infinity,height:52,child:FilledButton.icon(onPressed:generatingCode?null:_generatePairingCode,icon:generatingCode?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.add_link),label:Text(pairingCode!=null&&!expired?'Create a new code':'Create pairing code',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800)))),
+    SizedBox(width:double.infinity,height:52,child:FilledButton.icon(onPressed:(generatingCode||!_patientRecordReady)?null:_generatePairingCode,icon:generatingCode?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.add_link),label:Text(pairingCode!=null&&!expired?'Create a new code':'Create pairing code',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800)))),
    ]),
   );
  }
