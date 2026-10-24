@@ -829,36 +829,63 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     });
   }
 
-  Future<void> _startPositionStream({required bool guidanceMode}) async {
+  void _recenterMap() {
+    final position = _position;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Current location is not available yet.')),
+      );
+      return;
+    }
+    try {
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        _guidance ? 17 : 15,
+      );
+    } catch (_) {
+      // The map may not be attached yet.
+    }
+  }
+
+  Future<bool> _startPositionStream({required bool guidanceMode}) async {
     await _positionSubscription?.cancel();
     LocationSettings settings = const LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
     );
+    // Keep guidance in-app; avoid launching a plugin-managed foreground service
+    // that can terminate the activity on some Android versions/configurations.
     if (guidanceMode && defaultTargetPlatform == TargetPlatform.android) {
-      settings = AndroidSettings(
+      settings = const AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
-        intervalDuration: const Duration(seconds: 2),
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'BlindStick Companion navigation',
-          notificationText: 'Spoken walking guidance is active',
-          notificationChannelName: 'Walking navigation',
-          enableWakeLock: true,
-          setOngoing: true,
-        ),
+        intervalDuration: Duration(seconds: 2),
       );
     }
-    if (!mounted) return;
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: settings,
-    ).listen(_onPosition, onError: (_) {
-      if (!mounted) return;
-      setState(() => _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.');
-      if (_guidance) {
-        stick.announce('Warning. Live GPS updates stopped. Stop in a safe place and check your location and permissions.');
+    if (!mounted) return false;
+    try {
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: settings,
+      ).listen(_onPosition, onError: (Object error) {
+        if (!mounted) return;
+        setState(() {
+          _guidance = false;
+          _status = 'GPS updates unavailable';
+          _error = 'Live GPS updates stopped. Stop somewhere safe, check location permission and GPS, then start navigation again.';
+        });
+        unawaited(_announceSafely('Warning. Live GPS updates stopped. Stop in a safe place and check your location and permissions.'));
+      });
+      return true;
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _guidance = false;
+          _status = 'GPS unavailable';
+          _error = 'Could not start GPS updates. Check that location is enabled and the app has location permission.';
+        });
       }
-    });
+      return false;
+    }
   }
 
 
@@ -1247,38 +1274,90 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     return 'About $distanceText and ${(duration / 60).ceil()} minutes on the mapped route.';
   }
 
+  Future<void> _announceSafely(String message) async {
+    try {
+      await stick.announce(message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error =
+            'GPS navigation is active, but spoken audio could not start. Check media volume and text-to-speech settings.');
+      }
+    }
+  }
+
   Future<void> _startGuidance() async {
-    if (_routePoints.isEmpty || _steps.isEmpty || _position == null) {
-      setState(() => _error = 'A current GPS fix and a mapped route are required before spoken navigation can start.');
-      await stick.announce('Cannot start spoken navigation. A current GPS fix and mapped route are required.');
+    if (_busy || _guidance || !mounted) return;
+    if (_routePoints.isEmpty || _steps.isEmpty) {
+      setState(() => _error = 'Find a walking route before starting navigation.');
+      await _announceSafely('Cannot start spoken navigation. Find a route first.');
       return;
     }
-    // Start immediately with foreground location. Screen-off tracking remains
-    // opt-in via Android location settings instead of blocking each route with a dialog.
-    final backgroundAllowed = defaultTargetPlatform == TargetPlatform.android &&
-        await Permission.locationAlways.isGranted;
-    await _startPositionStream(guidanceMode: backgroundAllowed);
-    setState(() {
-      _guidance = true;
-      _offRoute = false;
-      _offRouteSamples = 0;
-      _poorAccuracyAnnounced = false;
-      _lastDistanceBand = null;
-      _nextStepIndex = _firstUpcomingManeuverIndex();
-      _status = backgroundAllowed ? 'Walking guidance active' : 'Walking guidance active — keep app open';
-      _error = backgroundAllowed
-          ? null
-          : 'Spoken directions are active. Keep this screen open and your phone unlocked; screen-off guidance can be enabled in Android location settings.';
-    });
-    await stick.announce(
-      'Spoken walking guidance started. ${_routeSummary()} '
-      '${backgroundAllowed ? 'Background location is enabled for this route.' : 'Keep the app open and screen on for live GPS updates.'} '
-      'GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.',
-    );
-    if (_nextStepIndex < _steps.length) {
-      await _speakCurrentStep(force: true);
-    } else {
-      await stick.announce('The route service returned no intermediate turns. Follow the mapped route only if it matches your surroundings, and stop if unsure.');
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() {
+          _status = 'Location is turned off';
+          _error = 'Turn on Location in Android quick settings, then tap Start navigation again.';
+        });
+        await _announceSafely('Location is turned off. Turn it on before starting navigation.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) setState(() {
+          _status = 'Location permission needed';
+          _error = permission == LocationPermission.deniedForever
+              ? 'Location permission is blocked. Open Android Settings and allow location while using the app.'
+              : 'Allow location while using the app to start navigation.';
+        });
+        await _announceSafely('Location permission is needed to start navigation.');
+        return;
+      }
+
+      final latestPosition = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      setState(() { _position = latestPosition; _error = null; });
+      final streamStarted = await _startPositionStream(guidanceMode: true);
+      if (!streamStarted || !mounted) return;
+
+      setState(() {
+        _guidance = true;
+        _offRoute = false;
+        _offRouteSamples = 0;
+        _poorAccuracyAnnounced = false;
+        _lastDistanceBand = null;
+        _nextStepIndex = _firstUpcomingManeuverIndex();
+        _status = 'Navigation active';
+        _error = 'Keep this screen open and the phone unlocked for live GPS updates.';
+      });
+      await _announceSafely(
+        'Spoken walking guidance started. ${_routeSummary()} Keep the app open and the screen on. GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.',
+      );
+      if (_nextStepIndex < _steps.length) {
+        await _speakCurrentStep(force: true);
+      } else {
+        await _announceSafely('The route has no intermediate turns. Follow the map only if it matches your surroundings, and stop if unsure.');
+      }
+    } on TimeoutException {
+      if (mounted) setState(() {
+        _guidance = false;
+        _status = 'Waiting for GPS';
+        _error = 'GPS did not get a fix within 15 seconds. Wait somewhere safe and try again.';
+      });
+      await _announceSafely('GPS has not fixed your location yet. Wait in a safe place and try again.');
+    } catch (_) {
+      if (mounted) setState(() {
+        _guidance = false;
+        _status = 'Could not start navigation';
+        _error = 'Navigation could not start. Check that GPS is on and location permission is allowed, then try again.';
+      });
+      await _announceSafely('Navigation could not start. Check your GPS and location permission.');
     }
   }
 
@@ -1310,9 +1389,9 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       unawaited(stick.pulseVibration(durationMs: distance <= 20 ? 260 : 120));
     }
     if (distance <= 20) {
-      await stick.announce('Now. ${step.instruction}');
+      await _announceSafely('Now. ${step.instruction}');
     } else {
-      await stick.announce('Next instruction in approximately ${_formatDistance(distance)}. ${step.instruction}');
+      await _announceSafely('Next instruction in approximately ${_formatDistance(distance)}. ${step.instruction}');
     }
   }
 
@@ -1340,6 +1419,23 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     final center = _position == null
         ? const LatLng(20.5937, 78.9629)
         : LatLng(_position!.latitude, _position!.longitude);
+    final previewIndex = _guidance ? _nextStepIndex : _firstUpcomingManeuverIndex();
+    final previewStep = previewIndex < _steps.length ? _steps[previewIndex] : null;
+    final hasRoute = _destination != null && _steps.isNotEmpty;
+    final primaryLabel = _busy
+        ? 'Preparing route…'
+        : _guidance
+            ? 'Pause navigation'
+            : hasRoute
+                ? 'Start navigation'
+                : 'Find route and start directions';
+    final VoidCallback? primaryAction = _busy
+        ? null
+        : _guidance
+            ? _stopGuidance
+            : hasRoute
+                ? _startGuidance
+                : _searchAndRoute;
     final markers = <Marker>[
       if (_position != null)
         Marker(
@@ -1356,173 +1452,269 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           child: Semantics(label: 'Destination', child: Icon(Icons.location_pin, color: red, size: 40)),
         ),
     ];
+
     return PopScope<Object?>(
       canPop: !_guidance,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && _guidance) {
-          stick.announce('Spoken walking guidance is still active. Stop guidance before leaving this navigation screen.');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Stop spoken directions before leaving navigation.')),
-          );
+          unawaited(_announceSafely('Navigation is still active. Pause navigation before leaving this screen.'));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pause navigation before leaving this screen.')));
         }
       },
       child: Scaffold(
-      appBar: AppBar(
-        title: const Text('Walking navigation'),
-        actions: [
-          if (widget.onEmergency != null)
+        appBar: AppBar(
+          title: const Text('Directions'),
+          actions: [
+            if (widget.onEmergency != null)
+              IconButton(
+                tooltip: 'Emergency help and SOS',
+                onPressed: () async {
+                  if (_guidance) await _stopGuidance();
+                  await widget.onEmergency!.call();
+                },
+                icon: Icon(Icons.sos, color: red, size: 28),
+              ),
             IconButton(
-              tooltip: 'Emergency help and SOS',
-              onPressed: () async {
-                if (_guidance) await _stopGuidance();
-                await widget.onEmergency!.call();
-              },
-              icon: Icon(Icons.sos, color: red, size: 28),
+              tooltip: 'Accessibility settings',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
+              icon: const Icon(Icons.accessibility_new),
             ),
-          IconButton(
-            tooltip: 'Accessibility settings',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
-            icon: const Icon(Icons.accessibility_new),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.34,
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(initialCenter: center, initialZoom: _position == null ? 5 : 15),
-              children: [
-                TileLayer(
-                  urlTemplate: _tileUrlTemplate,
-                  userAgentPackageName: 'com.vimal.blindstick',
-                ),
-                if (_routePoints.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [Polyline(points: _routePoints, strokeWidth: 5, color: teal)],
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              flex: 5,
+              child: Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(initialCenter: center, initialZoom: _position == null ? 5 : 15),
+                    children: [
+                      TileLayer(urlTemplate: _tileUrlTemplate, userAgentPackageName: 'com.vimal.blindstick'),
+                      if (_routePoints.isNotEmpty)
+                        PolylineLayer(polylines: [Polyline(points: _routePoints, strokeWidth: 6, color: teal)]),
+                      MarkerLayer(markers: markers),
+                      const RichAttributionWidget(attributions: [TextSourceAttribution('© OpenStreetMap contributors')]),
+                    ],
                   ),
-                MarkerLayer(markers: markers),
-                const RichAttributionWidget(
-                  attributions: [TextSourceAttribution('© OpenStreetMap contributors')],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
-              children: [
-                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _query,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _searchAndRoute(),
-                  decoration: const InputDecoration(
-                    labelText: 'Where do you want to go?',
-                    hintText: 'Enter a place, street, or address',
-                    prefixIcon: Icon(Icons.place_outlined),
+                  Positioned(
+                    top: 12, left: 14, right: 14,
+                    child: Material(
+                      elevation: 5,
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      child: TextField(
+                        controller: _query,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (_) => _searchAndRoute(),
+                        decoration: InputDecoration(
+                          labelText: 'Search destination',
+                          hintText: 'Place, street, or address',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: IconButton(
+                            tooltip: 'Find route and start directions',
+                            onPressed: _busy ? null : _searchAndRoute,
+                            icon: _busy
+                                ? const Padding(padding: EdgeInsets.all(14), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
+                                : const Icon(Icons.arrow_forward),
+                          ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 58,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _searchAndRoute,
-                    icon: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
-                    label: Text(_busy ? 'Finding route…' : 'Find route and start directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  Positioned(
+                    right: 16, bottom: 16,
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(16),
+                      child: IconButton(
+                        tooltip: 'Recenter map on my location',
+                        onPressed: _recenterMap,
+                        icon: const Icon(Icons.my_location),
+                      ),
+                    ),
                   ),
-                ),
-                if (_destinationLabel != null) ...[
-                  const SizedBox(height: 12),
-                  Text('Destination: $_destinationLabel', style: TextStyle(fontWeight: FontWeight.w700, color: navy)),
-                  if (_distanceMeters != null && _durationSeconds != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(_routeSummary(), style: const TextStyle(fontSize: 16)),
+                  if (_guidance)
+                    Positioned(
+                      left: 14, bottom: 18,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 8, offset: Offset(0, 2))]),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(width: 9, height: 9, decoration: BoxDecoration(color: teal, shape: BoxShape.circle)),
+                            const SizedBox(width: 8),
+                            const Text('Navigation active', style: TextStyle(fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ),
                     ),
                 ],
-                if (_offRoute)
-                  Semantics(
-                    liveRegion: true,
-                    label: 'Route warning. GPS suggests you may be away from the mapped route. Stop safely and recalculate.',
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(14)),
-                      child: Text('Route warning: your GPS position may be away from the mapped route. Spoken turns are paused. Stop somewhere safe and recalculate before continuing.', style: TextStyle(color: red, fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Semantics(liveRegion: true, child: Text(_error!, style: TextStyle(color: red, fontSize: 15))),
-                  ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 60,
-                  child: FilledButton.icon(
-                    onPressed: _steps.isEmpty || _busy ? null : (_guidance ? _stopGuidance : _startGuidance),
-                    icon: Icon(_guidance ? Icons.pause_circle_outline : Icons.record_voice_over),
-                    label: Text(_guidance ? 'Stop spoken directions' : 'Start spoken directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-                  ),
+              ),
+            ),
+            Expanded(
+              flex: 6,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+                  boxShadow: [BoxShadow(color: Color(0x16000000), blurRadius: 12, offset: Offset(0, -3))],
                 ),
-                if (_destination != null)
-                  TextButton.icon(
-                    onPressed: _busy ? null : _fetchRoute,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(_offRoute ? 'Recalculate route before continuing' : 'Recalculate route from current location'),
-                  ),
-                const SizedBox(height: 10),
-                Text('Upcoming directions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
-                if (_steps.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text('Search for a destination to show spoken instructions.'),
-                  )
-                else
-                  ..._steps.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final step = entry.value;
-                    return Semantics(
-                      label: 'Instruction ${index + 1}: ${step.instruction}',
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: index == _nextStepIndex && _guidance ? teal : const Color(0xFFEAF7F4),
-                          foregroundColor: navy,
-                          child: Text('${index + 1}'),
-                        ),
-                        title: Text(step.instruction),
-                        subtitle: Text('Segment distance: ${step.distanceMeters.round()} metres'),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(18, 15, 18, 22),
+                  children: [
+                    Center(child: Container(width: 38, height: 4, decoration: BoxDecoration(color: Color(0xFFCBD5E1), borderRadius: BorderRadius.circular(4)))),
+                    const SizedBox(height: 14),
+                    Semantics(
+                      liveRegion: true,
+                      label: 'Navigation status: $_status',
+                      child: Row(
+                        children: [
+                          Icon(_guidance ? Icons.navigation_rounded : Icons.route_outlined, color: teal, size: 25),
+                          const SizedBox(width: 9),
+                          Expanded(child: Text(_status, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: navy))),
+                        ],
                       ),
-                    );
-                  }),
-                const SizedBox(height: 12),
-                const Text(
-                  'Accessibility and safety: spoken directions depend on GPS, network access, and this public routing service. The route is a guide, not a guarantee that a footpath or crossing is safe. Keep using your usual mobility method, confirm crossings with your established technique, and stop if the spoken location seems wrong.',
-                  style: TextStyle(color: Color(0xFF59697B)),
+                    ),
+                    if (_destinationLabel != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_destinationLabel!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: navy, fontSize: 15, fontWeight: FontWeight.w700)),
+                    ],
+                    if (_distanceMeters != null && _durationSeconds != null) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(child: _routeMetric(Icons.schedule, '${(_durationSeconds! / 60).ceil()} min', 'Estimated walk')),
+                          const SizedBox(width: 10),
+                          Expanded(child: _routeMetric(Icons.straighten, _formatDistance(_distanceMeters!), 'Route distance')),
+                        ],
+                      ),
+                    ],
+                    if (previewStep != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: pale, borderRadius: BorderRadius.circular(18), border: Border.all(color: teal.withValues(alpha: 0.18))),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.turn_right_rounded, color: teal, size: 30),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(_guidance ? 'NEXT INSTRUCTION' : 'FIRST INSTRUCTION', style: TextStyle(color: teal, fontSize: 11, letterSpacing: 0.8, fontWeight: FontWeight.w900)),
+                                  const SizedBox(height: 4),
+                                  Text(previewStep.instruction, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: navy)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (_offRoute)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(14)),
+                          child: Text('Route warning: GPS suggests you may be away from the mapped route. Spoken turns are paused. Stop somewhere safe and recalculate before continuing.', style: TextStyle(color: red, fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Semantics(liveRegion: true, child: Text(_error!, style: TextStyle(color: red, fontSize: 14))),
+                      ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 58,
+                      child: FilledButton.icon(
+                        onPressed: primaryAction,
+                        icon: _busy
+                            ? const SizedBox(width: 19, height: 19, child: CircularProgressIndicator(strokeWidth: 2))
+                            : Icon(_guidance ? Icons.pause_circle_filled : Icons.navigation_rounded),
+                        label: Text(primaryLabel, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                    if (_destination != null) ...[
+                      const SizedBox(height: 5),
+                      TextButton.icon(
+                        onPressed: _busy ? null : _fetchRoute,
+                        icon: const Icon(Icons.refresh),
+                        label: Text(_offRoute ? 'Recalculate route' : 'Refresh route from current location'),
+                      ),
+                    ],
+                    if (_steps.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 8),
+                        title: Text('Turn-by-turn steps (${_steps.length})', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: navy)),
+                        children: _steps.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final step = entry.value;
+                          return Semantics(
+                            label: 'Instruction ${index + 1}: ${step.instruction}',
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                radius: 16,
+                                backgroundColor: index == _nextStepIndex && _guidance ? teal : pale,
+                                foregroundColor: navy,
+                                child: Text('${index + 1}'),
+                              ),
+                              title: Text(step.instruction),
+                              subtitle: Text('Segment distance: ${step.distanceMeters.round()} metres'),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Safety note: GPS and community walking routes can be inaccurate. Confirm crossings using your established mobility technique, keep using your usual mobility aid, and stop if the instructions do not match your surroundings.',
+                      style: TextStyle(color: Color(0xFF59697B), fontSize: 13),
+                    ),
+                  ],
                 ),
-                TextButton.icon(
-                  onPressed: () => launchUrl(
-                    Uri.parse('https://operations.osmfoundation.org/policies/tiles/'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('OpenStreetMap tile usage policy'),
-                ),
-                TextButton.icon(
-                  onPressed: () => launchUrl(
-                    Uri.parse('https://operations.osmfoundation.org/policies/nominatim/'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('Destination-search usage policy'),
-                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _routeMetric(IconData icon, String value, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(color: const Color(0xFFF3F6F9), borderRadius: BorderRadius.circular(15)),
+      child: Row(
+        children: [
+          Icon(icon, color: teal, size: 21),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w900)),
+                Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
               ],
             ),
           ),
         ],
-      ),
       ),
     );
   }
