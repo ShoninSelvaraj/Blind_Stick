@@ -63,14 +63,17 @@ static const float STOP_DISTANCE_CM = 35.0f;
 static const float CAUTION_DISTANCE_CM = 90.0f;
 static const unsigned long SENSOR_PERIOD_MS = 150;
 static const unsigned long TELEMETRY_PERIOD_MS = 800;
-static const unsigned long MOTOR_PULSE_MS = 220;
-static const unsigned long MOTOR_REPEAT_MS = 850;
+static const unsigned long STOP_MOTOR_PULSE_MS = 300;
+static const unsigned long STOP_MOTOR_REPEAT_MS = 450;
+static const unsigned long CAUTION_MOTOR_PULSE_MS = 100;
+static const unsigned long CAUTION_MOTOR_REPEAT_MS = 1400;
 
 WebServer cameraServer(80);
 float lastDistanceCm = -1.0f;
 unsigned long distanceMeasuredAt = 0;
 unsigned long lastSensorReadMs = 0;
 unsigned long lastMotorPulseMs = 0;
+int lastMotorSeverity = 0; // 0 clear/unknown, 1 caution, 2 stop
 volatile unsigned long requestedVibrationUntilMs = 0;
 
 BLECharacteristic* telemetryCharacteristic = nullptr;
@@ -166,7 +169,9 @@ void publishTelemetry() {
   doc["detection_status"] = "runs_on_android_phone";
   doc["camera_ap_ssid"] = CAMERA_AP_SSID;
   doc["camera_endpoint"] = "http://192.168.4.1";
-  if (lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500) {
+  const bool rangeFresh = lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500;
+  doc["range_sensor_status"] = rangeFresh ? "fresh" : "unavailable";
+  if (rangeFresh) {
     doc["distance_cm"] = lastDistanceCm;
   }
   // Object detection, person counts, and traffic-light colour estimates are
@@ -185,7 +190,9 @@ void handleCameraStatus() {
   doc["assistance"] = assistanceEnabled;
   doc["frame_endpoint"] = "/capture";
   doc["model_inference"] = "runs_on_android_phone";
-  if (lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500) {
+  const bool rangeFresh = lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500;
+  doc["range_sensor_status"] = rangeFresh ? "fresh" : "unavailable";
+  if (rangeFresh) {
     doc["distance_cm"] = lastDistanceCm;
   }
   String payload;
@@ -260,17 +267,30 @@ void updateSensorsAndHaptics(unsigned long now) {
 
   const bool freshDistance = lastDistanceCm >= 0 &&
     now - distanceMeasuredAt < 1500;
-  if (assistanceEnabled && freshDistance &&
-      now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
-    if (lastDistanceCm < STOP_DISTANCE_CM) {
-      // High urgency: repeat a short pulse at a steady cadence.
-      requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
-      lastMotorPulseMs = now;
-    } else if (lastDistanceCm < CAUTION_DISTANCE_CM) {
-      // Lower urgency: same pulse duration, with a slower cadence.
-      requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
+  int severity = 0;
+  if (assistanceEnabled && freshDistance) {
+    if (lastDistanceCm < STOP_DISTANCE_CM) severity = 2;
+    else if (lastDistanceCm < CAUTION_DISTANCE_CM) severity = 1;
+  }
+
+  // A newly more-urgent condition triggers immediately instead of waiting for
+  // the previous low-urgency cadence to finish.
+  if (severity != lastMotorSeverity) {
+    lastMotorSeverity = severity;
+    lastMotorPulseMs = 0;
+  }
+
+  if (severity > 0) {
+    const unsigned long pulseMs =
+      severity == 2 ? STOP_MOTOR_PULSE_MS : CAUTION_MOTOR_PULSE_MS;
+    const unsigned long repeatMs =
+      severity == 2 ? STOP_MOTOR_REPEAT_MS : CAUTION_MOTOR_REPEAT_MS;
+    if (lastMotorPulseMs == 0 || now - lastMotorPulseMs >= repeatMs) {
+      requestedVibrationUntilMs = now + pulseMs;
       lastMotorPulseMs = now;
     }
+  } else {
+    lastMotorPulseMs = 0;
   }
 
   const bool commandPulseActive = assistanceEnabled &&
