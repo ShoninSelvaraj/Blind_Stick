@@ -64,10 +64,10 @@ exports.notifyLinkedCaregiversOfSos = onDocumentCreated(
       return;
     }
 
-    const title = "Saathi emergency alert";
+    const title = "DishaFlow emergency alert";
     const body = typeof alert.message === "string" && alert.message.length > 0
       ? alert.message.slice(0, 180)
-      : "Someone using Saathi requested help.";
+      : "Someone using DishaFlow requested help.";
 
     const result = await admin.messaging().sendEachForMulticast({
       tokens: recipients.map((item) => item.token),
@@ -80,7 +80,7 @@ exports.notifyLinkedCaregiversOfSos = onDocumentCreated(
       android: {
         priority: "high",
         notification: {
-          channelId: "saathi_emergency_alerts",
+          channelId: "dishaflow_emergency_alerts",
           sound: "default",
           priority: "max",
         },
