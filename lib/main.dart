@@ -688,14 +688,14 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         return 'You have arrived at your destination.';
       case 'roundabout':
       case 'rotary':
-        return 'At the roundabout, take exit ${exit ?? 1}${street}.';
+        return 'At the roundabout, take exit ${exit ?? 1}$street.';
       case 'merge':
         return 'Merge ${modifier.isEmpty ? 'ahead' : modifier}$street.';
       case 'fork':
         return 'At the fork, keep ${modifier.isEmpty ? 'straight' : modifier}$street.';
       case 'continue':
       case 'new name':
-        return 'Continue walking${street}.';
+        return 'Continue walking$street.';
       case 'turn':
       case 'on ramp':
       case 'off ramp':
@@ -703,7 +703,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       case 'notification':
         return 'Turn ${modifier.isEmpty ? 'ahead' : modifier}$street.';
       default:
-        return 'Continue walking${street}.';
+        return 'Continue walking$street.';
     }
   }
 
@@ -755,14 +755,14 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           point: LatLng(_position!.latitude, _position!.longitude),
           width: 48,
           height: 48,
-          child: const Semantics(label: 'Your current location', child: Icon(Icons.my_location, color: Colors.blue, size: 34)),
+          child: Semantics(label: 'Your current location', child: const Icon(Icons.my_location, color: Colors.blue, size: 34)),
         ),
       if (_destination != null)
         Marker(
           point: _destination!,
           width: 48,
           height: 48,
-          child: const Semantics(label: 'Destination', child: Icon(Icons.location_pin, color: red, size: 40)),
+          child: Semantics(label: 'Destination', child: const Icon(Icons.location_pin, color: red, size: 40)),
         ),
     ];
     return Scaffold(
