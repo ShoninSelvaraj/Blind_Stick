@@ -1108,7 +1108,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;int _selectedTab=0;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
  @override void initState(){super.initState();_load();_ensurePatientRecord();stick.addListener(_changed);}
  Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
  Future<void> _generatePairingCode() async {
@@ -1184,17 +1184,299 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   }
  }
  @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
- @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Accessibility settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.accessibility_new)),TextButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out'))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
-  Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
-  Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'Waiting for stick':t.detectionStatus=='model_not_installed'?'AI model not installed':t.object!='Waiting for device data'?t.object:t.cameraFrameAvailable==true?'Camera active; no detection model':'Camera unavailable',teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
-  if(stick.lastError!=null)Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),child:Text(stick.lastError!,style:const TextStyle(color:red))),
-  SizedBox(height:56,child:FilledButton.icon(onPressed:stick.scanning?null:stick.scanAndConnect,icon:Icon(stick.scanning?Icons.hourglass_top:Icons.bluetooth_searching),label:Text(stick.scanning?'Searching…':stick.connected?'Reconnect to stick':'Find my stick',style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)))),const SizedBox(height:10),
-  SizedBox(height:62,child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:stick.assistance?red:teal,foregroundColor:Colors.white),onPressed:stick.connected?()=>stick.setAssistance(!stick.assistance):null,icon:Icon(stick.assistance?Icons.pause_circle_filled:Icons.play_circle_fill,size:28),label:Text(stick.assistance?'Pause assistance':'Start assistance',style:const TextStyle(fontSize:19,fontWeight:FontWeight.w800)))),if(!stick.connected)const Padding(padding:EdgeInsets.only(top:8),child:Text('Connect the physical stick before starting live assistance.',style:TextStyle(color:Color(0xFF64748B)))),const SizedBox(height:18),_pairingCard(),const SizedBox(height:22),
-  _section('Get somewhere',Icons.navigation_outlined),const SizedBox(height:10),TextField(controller:destination,textInputAction:TextInputAction.go,onSubmitted:(v)=>openNavigation(c,v),decoration:const InputDecoration(labelText:'Where would you like to go?',hintText:'Enter a place or address',prefixIcon:Icon(Icons.place_outlined))),const SizedBox(height:10),SizedBox(height:54,child:FilledButton.icon(onPressed:()=>openNavigation(c,destination.text),icon:const Icon(Icons.directions_walk),label:const Text('Start walking directions',style:TextStyle(fontSize:16,fontWeight:FontWeight.bold)))),const SizedBox(height:8),Text(locationText,style:const TextStyle(color:Color(0xFF64748B))),TextButton.icon(onPressed:_refreshLocation,icon:const Icon(Icons.my_location),label:const Text('Check my location')),const SizedBox(height:20),
-  _section('Keep your caregiver informed',Icons.favorite_outline),SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Share my location',style:TextStyle(fontWeight:FontWeight.w700)),subtitle:Text(sharing?'Updates location every 30 seconds while the app is open':'Off until you choose to share'),value:sharing,onChanged:_toggleSharing),const SizedBox(height:10),
-  SizedBox(height:62,child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:red,foregroundColor:Colors.white),onPressed:_sos,icon:const Icon(Icons.sos,size:30),label:const Text('SOS · Ask for help',style:TextStyle(fontSize:19,fontWeight:FontWeight.w900)))),const SizedBox(height:20),
-  _section('Recent alerts',Icons.notifications_active_outlined),const SizedBox(height:8),if(stick.events.isEmpty)const Text('Your device events will appear here after connection.')else ...stick.events.take(8).map((e)=>ListTile(dense:true,contentPadding:EdgeInsets.zero,leading:const Icon(Icons.circle,size:10,color:teal),title:Text(e,style:const TextStyle(fontSize:14))))
- ]));}
+ @override
+ Widget build(BuildContext c) {
+  final t=stick.telemetry;
+  final pages = <Widget>[
+   _homeTab(t),
+   _navigationTab(),
+   _connectionsTab(),
+   _helpTab(),
+  ];
+  return Scaffold(
+   appBar: AppBar(
+    title: Text(_tabTitle(_selectedTab),style:const TextStyle(fontWeight:FontWeight.w800)),
+    actions:[
+     IconButton(
+      tooltip:'Accessibility and settings',
+      onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),
+      icon:const Icon(Icons.accessibility_new),
+     ),
+     TextButton.icon(
+      onPressed:()=>confirmSignOut(c),
+      icon:const Icon(Icons.logout),
+      label:const Text('Sign out'),
+     ),
+    ],
+   ),
+   body:IndexedStack(index:_selectedTab,children:pages),
+   bottomNavigationBar:NavigationBar(
+    selectedIndex:_selectedTab,
+    onDestinationSelected:_selectTab,
+    destinations:const [
+     NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Home'),
+     NavigationDestination(icon:Icon(Icons.navigation_outlined),selectedIcon:Icon(Icons.navigation),label:'Navigate'),
+     NavigationDestination(icon:Icon(Icons.people_outline),selectedIcon:Icon(Icons.people),label:'Connections'),
+     NavigationDestination(icon:Icon(Icons.support_agent_outlined),selectedIcon:Icon(Icons.support_agent),label:'Help & SOS'),
+    ],
+   ),
+  );
+ }
+
+ String _tabTitle(int index)=>const ['Home','Walking navigation','Connections','Help and SOS'][index];
+
+ Future<void> _selectTab(int index) async {
+  if(index<0||index>3)return;
+  setState(()=>_selectedTab=index);
+  await stick.announce('${_tabTitle(index)} screen.');
+ }
+
+ Widget _homeTab(StickTelemetry t)=>ListView(
+  padding:const EdgeInsets.fromLTRB(18,12,18,26),
+  children:[
+   Container(
+    padding:const EdgeInsets.all(22),
+    decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:17)),
+     const SizedBox(height:8),
+     const Text('What would you like to do?',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),
+     const SizedBox(height:14),
+     Semantics(container:true,liveRegion:true,label:'Stick connection status: ${stick.status}',child:Row(children:[
+      Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent,size:28),
+      const SizedBox(width:10),
+      Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:16))),
+     ])),
+    ]),
+   ),
+   const SizedBox(height:18),
+   _section('Start here',Icons.play_circle_outline),
+   const SizedBox(height:10),
+   SizedBox(
+    height:68,
+    child:FilledButton.icon(
+     onPressed:stick.scanning?null:stick.scanAndConnect,
+     icon:Icon(stick.scanning?Icons.hourglass_top:Icons.bluetooth_searching,size:28),
+     label:Text(stick.scanning?'Looking for your stick…':stick.connected?'Reconnect to my stick':'Connect my smart stick',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   const SizedBox(height:10),
+   SizedBox(
+    height:68,
+    child:FilledButton.icon(
+     onPressed:stick.connected?()=>stick.setAssistance(!stick.assistance):null,
+     style:FilledButton.styleFrom(backgroundColor:stick.assistance?red:teal,foregroundColor:Colors.white,disabledBackgroundColor:const Color(0xFFE1E8EE),disabledForegroundColor:const Color(0xFF59697B)),
+     icon:Icon(stick.assistance?Icons.pause_circle_filled:Icons.play_circle_fill,size:28),
+     label:Text(stick.assistance?'Pause stick assistance':'Start stick assistance',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   if(!stick.connected)const Padding(
+    padding:EdgeInsets.only(top:8),
+    child:Text('Connect the physical stick before starting live stick assistance.',style:TextStyle(fontSize:15,color:Color(0xFF59697B))),
+   ),
+   const SizedBox(height:22),
+   _section('Quick actions',Icons.touch_app_outlined),
+   const SizedBox(height:10),
+   SizedBox(
+    height:64,
+    child:OutlinedButton.icon(
+     onPressed:()=>_selectTab(1),
+     icon:const Icon(Icons.directions_walk,size:27),
+     label:const Text('Plan a walking route',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   const SizedBox(height:10),
+   SizedBox(
+    height:64,
+    child:OutlinedButton.icon(
+     onPressed:()=>_selectTab(2),
+     icon:const Icon(Icons.people_alt_outlined,size:27),
+     label:const Text('Connect a trusted caregiver',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   const SizedBox(height:22),
+   _section('Device readiness',Icons.health_and_safety_outlined),
+   const SizedBox(height:10),
+   _readinessItem(
+    'Ultrasonic obstacle range',
+    t.distanceCm==null?'No distance reading received': '${t.distanceCm!.round()} centimetres',
+    t.distanceCm==null?Icons.sensors_off:Icons.radar,
+    t.distanceCm==null?Colors.orange:teal,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Camera and AI',
+    !stick.connected?'Connect the stick to check camera status':t.detectionStatus=='model_not_installed'?'Camera bridge detected; object-detection AI is not installed':t.cameraReady==true?'Camera reports ready; AI results still need verification':'Camera status not confirmed',
+    Icons.camera_alt_outlined,
+    t.detectionStatus=='model_not_installed'||!stick.connected?Colors.orange:teal,
+   ),
+   if(stick.lastError!=null)Padding(
+    padding:const EdgeInsets.only(top:12),
+    child:Semantics(liveRegion:true,child:Container(
+     padding:const EdgeInsets.all(14),
+     decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),
+     child:Text(stick.lastError!,style:const TextStyle(color:red,fontSize:16,fontWeight:FontWeight.w700)),
+    )),
+   ),
+   const SizedBox(height:14),
+   const Text(
+    'Safety: the current hardware bridge does not yet provide verified ultrasonic distance or trained object/traffic/crowd detections. Keep using your usual mobility technique and stop if device data is missing.',
+    style:TextStyle(color:Color(0xFF59697B),fontSize:14),
+   ),
+  ],
+ );
+
+ Widget _navigationTab()=>ListView(
+  padding:const EdgeInsets.fromLTRB(18,12,18,26),
+  children:[
+   Container(
+    padding:const EdgeInsets.all(20),
+    decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),
+    child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Icon(Icons.assistant_navigation,color:Color(0xFF9FF0D0),size:34),
+     SizedBox(height:12),
+     Text('Where would you like to go?',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),
+     SizedBox(height:8),
+     Text('Search for a destination, review the walking route, then choose Start spoken directions.',style:TextStyle(color:Colors.white70,fontSize:16)),
+    ]),
+   ),
+   const SizedBox(height:20),
+   TextField(
+    controller:destination,
+    textInputAction:TextInputAction.go,
+    onSubmitted:(v)=>openNavigation(c,v),
+    decoration:const InputDecoration(
+     labelText:'Destination',
+     hintText:'Place, street, or address',
+     prefixIcon:Icon(Icons.place_outlined),
+    ),
+   ),
+   const SizedBox(height:12),
+   SizedBox(
+    height:66,
+    child:FilledButton.icon(
+     onPressed:()=>openNavigation(c,destination.text),
+     icon:const Icon(Icons.map_outlined,size:28),
+     label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+    ),
+   ),
+   const SizedBox(height:12),
+   Semantics(liveRegion:true,child:Text(locationText,style:const TextStyle(fontSize:16,color:Color(0xFF59697B)))),
+   const SizedBox(height:8),
+   SizedBox(
+    height:58,
+    child:OutlinedButton.icon(
+     onPressed:_refreshLocation,
+     icon:const Icon(Icons.my_location,size:25),
+     label:const Text('Check my current location',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:22),
+   const Text(
+    'Navigation note: the route uses public community mapping services and phone GPS. It can be incomplete or inaccurate. Do not start walking based on a route preview alone; stop if spoken directions do not match your surroundings.',
+    style:TextStyle(fontSize:14,color:Color(0xFF59697B)),
+   ),
+  ],
+ );
+
+ Widget _connectionsTab()=>ListView(
+  padding:const EdgeInsets.fromLTRB(18,12,18,26),
+  children:[
+   Container(
+    padding:const EdgeInsets.all(20),
+    decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),
+    child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Icon(Icons.people_alt_outlined,color:Color(0xFF9FF0D0),size:34),
+     SizedBox(height:12),
+     Text('People you trust',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),
+     SizedBox(height:8),
+     Text('You control who can connect. Share a one-time code only with a trusted person.',style:TextStyle(color:Colors.white70,fontSize:16)),
+    ]),
+   ),
+   const SizedBox(height:18),
+   _pairingCard(),
+   const SizedBox(height:18),
+   _section('Location sharing',Icons.location_on_outlined),
+   const SizedBox(height:8),
+   SwitchListTile(
+    contentPadding:EdgeInsets.zero,
+    title:const Text('Share my location',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+    subtitle:Text(sharing?'Sharing while the app stays open.':'Off until you turn it on.'),
+    value:sharing,
+    onChanged:_toggleSharing,
+   ),
+   Semantics(liveRegion:true,child:Text(locationText,style:const TextStyle(fontSize:15,color:Color(0xFF59697B)))),
+   const SizedBox(height:8),
+   SizedBox(
+    height:58,
+    child:OutlinedButton.icon(
+     onPressed:_refreshLocation,
+     icon:const Icon(Icons.my_location),
+     label:const Text('Refresh current location',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:10),
+   const Text('Location sharing stops when the app is closed or the phone cannot obtain a location. It is not continuous background tracking.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
+  ],
+ );
+
+ Widget _helpTab()=>ListView(
+  padding:const EdgeInsets.fromLTRB(18,12,18,26),
+  children:[
+   Container(
+    padding:const EdgeInsets.all(20),
+    decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(22),border:Border.all(color:red,width:2)),
+    child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Icon(Icons.health_and_safety_outlined,color:red,size:36),
+     SizedBox(height:12),
+     Text('Need help?',style:TextStyle(color:navy,fontSize:25,fontWeight:FontWeight.w900)),
+     SizedBox(height:8),
+     Text('Save an SOS alert and, if needed, open an SMS message to contact someone you trust.',style:TextStyle(color:navy,fontSize:16)),
+    ]),
+   ),
+   const SizedBox(height:18),
+   SizedBox(
+    height:74,
+    child:FilledButton.icon(
+     onPressed:_sos,
+     style:FilledButton.styleFrom(backgroundColor:red,foregroundColor:Colors.white),
+     icon:const Icon(Icons.sos,size:32),
+     label:const Text('SOS — ask for help',style:TextStyle(fontSize:21,fontWeight:FontWeight.w900)),
+    ),
+   ),
+   const SizedBox(height:12),
+   const Text('Zero-budget mode does not send automatic background push notifications. Saving an SOS does not confirm that a caregiver has seen it or that emergency services have been contacted.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
+   const SizedBox(height:22),
+   _section('Recent device alerts',Icons.notifications_active_outlined),
+   const SizedBox(height:8),
+   if(stick.events.isEmpty)
+    const Text('No device events have been recorded in this session.')
+   else
+    ...stick.events.take(10).map((event)=>Semantics(
+     label:'Device event: $event',
+     child:ListTile(
+      contentPadding:EdgeInsets.zero,
+      leading:const Icon(Icons.circle,size:12,color:teal),
+      title:Text(event,style:const TextStyle(fontSize:15)),
+     ),
+    )),
+  ],
+ );
+
+ Widget _readinessItem(String title,String value,IconData icon,Color color)=>Container(
+  padding:const EdgeInsets.all(15),
+  decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFDCE5E9))),
+  child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   Icon(icon,color:color,size:28),
+   const SizedBox(width:12),
+   Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    Text(title,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
+    const SizedBox(height:5),
+    Text(value,style:const TextStyle(fontSize:15,color:Color(0xFF59697B))),
+   ])),
+  ]),
+ );
+
  Widget _statusTile(String title,String value,Color color,IconData icon)=>Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE1E8EE))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,color:color,size:25),const SizedBox(height:12),Text(title,style:const TextStyle(color:Color(0xFF68778A))),const SizedBox(height:4),Text(value,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:navy,fontWeight:FontWeight.w900,fontSize:17))]));
  Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:const TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
 }
