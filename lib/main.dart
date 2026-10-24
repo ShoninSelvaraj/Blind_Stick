@@ -2222,14 +2222,14 @@ class _CaregiverPageState extends State<CaregiverPage>{
    // Keep the zero-billing Firestore listener as a fallback. Push delivery also
    // depends on the Firebase Cloud Function being deployed and network access.
    await caregiverAlertsChannel.invokeMethod<bool>('startCaregiverAlertMonitor');
-   if(mounted)setState(()=>_monitorEnabled=true);
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+   if(mounted){setState(()=>_monitorEnabled=true);}
+   if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
     pushTokenReady
      ? 'SOS notifications are enabled. Keep the monitoring notification visible; remote push also needs the Firebase notification function deployed.'
      : 'On-device SOS monitoring is enabled. Push registration failed, so keep the app monitoring active and check your connection.',
-   )));
+   )));}
   }catch(error){
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));
+   if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));}
   }finally{if(mounted)setState(()=>_monitorStarting=false);}
  }
  Future<void> _saveFcmToken(String token) async {
