@@ -2,11 +2,65 @@ package com.vimal.blindstick
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+import org.tensorflow.lite.DataType
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.Tensor
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.Locale
+import java.util.zip.ZipInputStream
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
+    private val visionChannelName = "blindstick_companion/vision"
+    private val modelZipUrl =
+        "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var interpreter: Interpreter? = null
+
+    private val cocoLabels = mapOf(
+        1 to "person", 2 to "bicycle", 3 to "car", 4 to "motorcycle",
+        5 to "airplane", 6 to "bus", 7 to "train", 8 to "truck", 9 to "boat",
+        10 to "traffic light", 11 to "fire hydrant", 13 to "stop sign",
+        14 to "parking meter", 15 to "bench", 16 to "bird", 17 to "cat",
+        18 to "dog", 19 to "horse", 20 to "sheep", 21 to "cow", 22 to "elephant",
+        23 to "bear", 24 to "zebra", 25 to "giraffe", 27 to "backpack",
+        28 to "umbrella", 31 to "handbag", 32 to "tie", 33 to "suitcase",
+        34 to "frisbee", 35 to "skis", 36 to "snowboard", 37 to "sports ball",
+        38 to "kite", 39 to "baseball bat", 40 to "baseball glove",
+        41 to "skateboard", 42 to "surfboard", 43 to "tennis racket",
+        44 to "bottle", 46 to "wine glass", 47 to "cup", 48 to "fork",
+        49 to "knife", 50 to "spoon", 51 to "bowl", 52 to "banana",
+        53 to "apple", 54 to "sandwich", 55 to "orange", 56 to "broccoli",
+        57 to "carrot", 58 to "hot dog", 59 to "pizza", 60 to "donut",
+        61 to "cake", 62 to "chair", 63 to "couch", 64 to "potted plant",
+        65 to "bed", 67 to "dining table", 70 to "toilet", 72 to "tv",
+        73 to "laptop", 74 to "mouse", 75 to "remote", 76 to "keyboard",
+        77 to "cell phone", 78 to "microwave", 79 to "oven", 80 to "toaster",
+        81 to "sink", 82 to "refrigerator", 84 to "book", 85 to "clock",
+        86 to "vase", 87 to "scissors", 88 to "teddy bear", 89 to "hair drier",
+        90 to "toothbrush"
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -19,8 +73,301 @@ class MainActivity : FlutterActivity() {
                 enableVibration(true)
                 setShowBadge(true)
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+    }
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, visionChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openWifiSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("WIFI_SETTINGS", error.message, null)
+                        }
+                    }
+                    "visionModelReady" -> result.success(modelFile().let { it.exists() && it.length() > 100_000 })
+                    "prepareVisionModel" -> worker.execute {
+                        try {
+                            val file = ensureModelFile()
+                            // Opening the interpreter here verifies the downloaded file before the UI says ready.
+                            getInterpreter(file)
+                            runOnUiThread { result.success(mapOf("ready" to true, "model" to "SSD MobileNet V1 COCO", "bytes" to file.length())) }
+                        } catch (error: Exception) {
+                            runOnUiThread { result.error("VISION_MODEL", error.message ?: "Model download failed", null) }
+                        }
+                    }
+                    "detectObjects" -> {
+                        val jpeg = call.argument<ByteArray>("jpegBytes")
+                        if (jpeg == null || jpeg.isEmpty()) {
+                            result.error("VISION_FRAME", "No camera JPEG bytes were supplied", null)
+                        } else {
+                            worker.execute {
+                                try {
+                                    val output = detectJpeg(jpeg)
+                                    runOnUiThread { result.success(output) }
+                                } catch (error: Exception) {
+                                    runOnUiThread { result.error("VISION_INFERENCE", error.message ?: "Inference failed", null) }
+                                }
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun modelFile(): File {
+        val folder = File(filesDir, "vision-model")
+        if (!folder.exists()) folder.mkdirs()
+        return File(folder, "detect.tflite")
+    }
+
+    private fun ensureModelFile(): File {
+        val destination = modelFile()
+        if (destination.exists() && destination.length() > 100_000) return destination
+        val zipFile = File(cacheDir, "coco-ssd-mobile-net.zip")
+        val connection = (URL(modelZipUrl).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "BlindStick-Companion/1.0")
+        }
+        try {
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("Model download returned HTTP ${connection.responseCode}. Connect to the internet and try again.")
+            }
+            BufferedInputStream(connection.inputStream).use { input ->
+                BufferedOutputStream(FileOutputStream(zipFile)).use { output -> input.copyTo(output) }
+            }
+        } finally {
+            connection.disconnect()
+        }
+
+        var extracted = false
+        val temporary = File(destination.parentFile, "detect.tflite.part")
+        ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (!entry.isDirectory && entry.name.lowercase(Locale.US).endsWith(".tflite")) {
+                    BufferedOutputStream(FileOutputStream(temporary)).use { output -> zip.copyTo(output) }
+                    zip.closeEntry()
+                    if (temporary.length() > 100_000) {
+                        if (destination.exists()) destination.delete()
+                        if (!temporary.renameTo(destination)) {
+                            temporary.copyTo(destination, overwrite = true)
+                            temporary.delete()
+                        }
+                        extracted = true
+                        break
+                    }
+                }
+                zip.closeEntry()
+            }
+        }
+        zipFile.delete()
+        if (!extracted || !destination.exists() || destination.length() < 100_000) {
+            temporary.delete()
+            throw IllegalStateException("The downloaded archive did not contain a valid TFLite model.")
+        }
+        // TFLite FlatBuffer files start with the TFL3 identifier at byte offset 4.
+        FileInputStream(destination).use { input ->
+            val bytes = ByteArray(8)
+            if (input.read(bytes) != bytes.size || String(bytes, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                destination.delete()
+                throw IllegalStateException("The downloaded model failed its file integrity check.")
+            }
+        }
+        return destination
+    }
+
+    @Synchronized
+    private fun getInterpreter(file: File = modelFile()): Interpreter {
+        val existing = interpreter
+        if (existing != null) return existing
+        if (!file.exists() || file.length() < 100_000) {
+            throw IllegalStateException("AI model not prepared. Connect to the internet and tap Prepare on-device AI first.")
+        }
+        val options = Interpreter.Options().apply { setNumThreads(2) }
+        return Interpreter(file, options).also { interpreter = it }
+    }
+
+    private fun detectJpeg(jpeg: ByteArray): Map<String, Any> {
+        val source = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+            ?: throw IllegalStateException("The camera endpoint did not return a decodable JPEG image.")
+        if (source.width < 32 || source.height < 32) {
+            source.recycle()
+            throw IllegalStateException("The camera frame is too small to run object detection.")
+        }
+        val model = getInterpreter()
+        val resized = Bitmap.createScaledBitmap(source, 300, 300, true)
+        val inputTensor = model.getInputTensor(0)
+        val input = ByteBuffer.allocateDirect(inputTensor.numBytes()).order(ByteOrder.nativeOrder())
+        val pixels = IntArray(300 * 300)
+        resized.getPixels(pixels, 0, 300, 0, 0, 300, 300)
+        val inputType = inputTensor.dataType()
+        val inputQuant = inputTensor.quantizationParams()
+        for (pixel in pixels) {
+            val red = (pixel shr 16) and 0xFF
+            val green = (pixel shr 8) and 0xFF
+            val blue = pixel and 0xFF
+            when (inputType) {
+                DataType.FLOAT32 -> {
+                    input.putFloat(red / 255f)
+                    input.putFloat(green / 255f)
+                    input.putFloat(blue / 255f)
+                }
+                DataType.UINT8 -> {
+                    input.put(red.toByte()); input.put(green.toByte()); input.put(blue.toByte())
+                }
+                DataType.INT8 -> {
+                    val scale = if (inputQuant.scale > 0f) inputQuant.scale else (1f / 255f)
+                    val zero = inputQuant.zeroPoint
+                    input.put(((red / 255f / scale + zero).roundToInt()).coerceIn(-128, 127).toByte())
+                    input.put(((green / 255f / scale + zero).roundToInt()).coerceIn(-128, 127).toByte())
+                    input.put(((blue / 255f / scale + zero).roundToInt()).coerceIn(-128, 127).toByte())
+                }
+                else -> throw IllegalStateException("Unsupported model input type: $inputType")
+            }
+        }
+        input.rewind()
+
+        val outputs = HashMap<Int, Any>()
+        val buffers = HashMap<Int, ByteBuffer>()
+        for (index in 0 until model.outputTensorCount) {
+            val buffer = ByteBuffer.allocateDirect(model.getOutputTensor(index).numBytes()).order(ByteOrder.nativeOrder())
+            buffers[index] = buffer
+            outputs[index] = buffer
+        }
+        model.runForMultipleInputsOutputs(arrayOf(input), outputs)
+
+        fun outputFloats(index: Int, dequantize: Boolean = true): FloatArray {
+            val tensor = model.getOutputTensor(index)
+            val buffer = buffers[index]!!.apply { rewind() }
+            return when (tensor.dataType()) {
+                DataType.FLOAT32 -> FloatArray(tensor.numElements()) { buffer.float }
+                DataType.UINT8 -> FloatArray(tensor.numElements()) {
+                    val raw = (buffer.get().toInt() and 0xFF).toFloat()
+                    if (dequantize && tensor.quantizationParams().scale > 0f) {
+                        (raw - tensor.quantizationParams().zeroPoint) * tensor.quantizationParams().scale
+                    } else raw
+                }
+                DataType.INT8 -> FloatArray(tensor.numElements()) {
+                    val raw = buffer.get().toInt().toFloat()
+                    if (dequantize && tensor.quantizationParams().scale > 0f) {
+                        (raw - tensor.quantizationParams().zeroPoint) * tensor.quantizationParams().scale
+                    } else raw
+                }
+                DataType.INT32 -> FloatArray(tensor.numElements()) { buffer.int.toFloat() }
+                else -> throw IllegalStateException("Unsupported output tensor type: ${tensor.dataType()}")
+            }
+        }
+
+        val boxesIndex = (0 until model.outputTensorCount).firstOrNull {
+            val shape = model.getOutputTensor(it).shape()
+            shape.size == 3 && shape.last() == 4
+        } ?: 0
+        val classIndex = (0 until model.outputTensorCount).firstOrNull {
+            model.getOutputTensor(it).name().lowercase(Locale.US).contains("class")
+        } ?: 1
+        val scoreIndex = (0 until model.outputTensorCount).firstOrNull {
+            model.getOutputTensor(it).name().lowercase(Locale.US).contains("score")
+        } ?: 2
+        val countIndex = (0 until model.outputTensorCount).firstOrNull {
+            val name = model.getOutputTensor(it).name().lowercase(Locale.US)
+            name.contains("num_detections") || model.getOutputTensor(it).shape().contentEquals(intArrayOf(1))
+        } ?: 3
+
+        val boxes = outputFloats(boxesIndex)
+        val classes = outputFloats(classIndex, dequantize = false)
+        val scores = outputFloats(scoreIndex)
+        val countRaw = outputFloats(countIndex, dequantize = false).firstOrNull()?.roundToInt() ?: scores.size
+        val detectionLimit = min(countRaw.coerceAtLeast(0), min(scores.size, classes.size))
+        val detections = ArrayList<Map<String, Any>>(detectionLimit)
+        var people = 0
+        for (index in 0 until detectionLimit) {
+            val score = scores[index]
+            if (!score.isFinite() || score < 0.35f) continue
+            val classId = classes[index].roundToInt()
+            val label = cocoLabels[classId] ?: continue
+            val offset = index * 4
+            if (offset + 3 >= boxes.size) continue
+            val top = boxes[offset].coerceIn(0f, 1f)
+            val left = boxes[offset + 1].coerceIn(0f, 1f)
+            val bottom = boxes[offset + 2].coerceIn(0f, 1f)
+            val right = boxes[offset + 3].coerceIn(0f, 1f)
+            if (bottom <= top || right <= left) continue
+
+            val trafficState = if (label == "traffic light") {
+                classifyTrafficLamp(source, left, top, right, bottom)
+            } else "not_applicable"
+
+            detections.add(mapOf(
+                "label" to label,
+                "confidence" to score.toDouble(),
+                "box" to listOf(top.toDouble(), left.toDouble(), bottom.toDouble(), right.toDouble()),
+                "trafficState" to trafficState
+            ))
+            if (label == "person" && score >= 0.40f) people++
+        }
+
+        if (resized !== source) resized.recycle()
+        source.recycle()
+        return mapOf(
+            "model" to "SSD MobileNet V1 COCO (quantized)",
+            "detections" to detections,
+            "personCount" to people,
+            "crowdLevel" to when { people >= 5 -> "high"; people >= 3 -> "medium"; else -> "low" }
+        )
+    }
+
+    private fun classifyTrafficLamp(bitmap: Bitmap, left: Float, top: Float, right: Float, bottom: Float): String {
+        val x0 = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+        val y0 = (top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+        val x1 = (right * bitmap.width).toInt().coerceIn(x0 + 1, bitmap.width)
+        val y1 = (bottom * bitmap.height).toInt().coerceIn(y0 + 1, bitmap.height)
+        val width = x1 - x0
+        val height = y1 - y0
+        if (width < 3 || height < 3) return "unknown"
+        var red = 0; var amber = 0; var green = 0
+        // Sample the interior only; tiny distant lamps will intentionally remain unknown.
+        val leftInner = x0 + (width * 0.20f).toInt()
+        val rightInner = max(leftInner + 1, x1 - (width * 0.20f).toInt())
+        val topInner = y0 + (height * 0.10f).toInt()
+        val bottomInner = max(topInner + 1, y1 - (height * 0.10f).toInt())
+        var samples = 0
+        val stepX = max(1, width / 18)
+        val stepY = max(1, height / 28)
+        for (y in topInner until bottomInner step stepY) {
+            for (x in leftInner until rightInner step stepX) {
+                val pixel = bitmap.getPixel(x, y)
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                if (max(r, max(g, b)) < 90) continue
+                samples++
+                if (r > 115 && r > g * 1.30 && r > b * 1.25) red++
+                if (r > 110 && g > 75 && b < min(r, g) * 0.75 && abs(r - g) < 95) amber++
+                if (g > 105 && g > r * 1.20 && g > b * 0.90) green++
+            }
+        }
+        if (samples < 4) return "unknown"
+        val counts = mapOf("red" to red, "amber" to amber, "green" to green)
+        val winner = counts.maxByOrNull { it.value } ?: return "unknown"
+        val totalLampPixels = red + amber + green
+        if (winner.value < 3 || totalLampPixels < 4 || winner.value < totalLampPixels * 0.50) return "unknown"
+        return winner.key
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        worker.shutdown()
+        interpreter?.close()
+        interpreter = null
     }
 }
