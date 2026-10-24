@@ -1444,7 +1444,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     padding:const EdgeInsets.all(16),
     decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFDCE5E9))),
     child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     Text('Camera AI status',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:navy)),
+     const Text('Camera AI status',style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:navy)),
      const SizedBox(height:6),
      Semantics(liveRegion:true,child:Text(vision.status,style:const TextStyle(fontSize:15,color:Color(0xFF59697B)))),
      if(vision.detections.isNotEmpty)Padding(
