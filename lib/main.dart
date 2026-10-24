@@ -242,12 +242,6 @@ class PairingService {
    final patientUid=(codeData['patientUid']??'').toString();
    if(patientUid.isEmpty||patientUid==caregiverUid)throw StateError('This code cannot be used for this account.');
    final patientRef=_db.collection('patients').doc(patientUid);
-   final patientSnap=await tx.get(patientRef);
-   if(!patientSnap.exists)throw StateError('The linked account is not ready yet. Ask them to open the app and try again.');
-   final patientData=patientSnap.data()!;
-   final caregivers=List<String>.from(patientData['caregiverUids']??const <String>[]);
-   if(caregivers.contains(caregiverUid))throw StateError('You are already linked to this person.');
-   if(caregivers.length>=2)throw StateError('This person has reached the limit of two caregivers.');
    tx.set(claimRef,{
     'patientUid':patientUid,
     'caregiverUid':caregiverUid,
@@ -351,10 +345,10 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   try{
    final result=await PairingService.createCode(widget.user.uid);
    if(!mounted)return;
-   setState(()=>{pairingCode=result.$1,pairingExpiresAt=result.$2});
+   setState(() { pairingCode=result.$1; pairingExpiresAt=result.$2; });
    pairExpiryTimer?.cancel();
    pairExpiryTimer=Timer(const Duration(minutes:10),(){
-    if(mounted)setState(()=>{pairingCode=null,pairingExpiresAt=null});
+    if(mounted)setState(() { pairingCode=null; pairingExpiresAt=null; });
    });
    await stick.announce('Your caregiver pairing code is ${result.$1.split('').join(' ')}. It expires in ten minutes. Share it only with someone you trust.');
   }catch(_){
@@ -416,7 +410,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
   if(!RegExp(r'^\d{8}$').hasMatch(code)){setState(()=>pairingError='Enter all 8 digits from the code shared with you.');return;}
-  setState(()=>{pairing=true,pairingError=null,pairingInfo=null});
+  setState(() { pairing=true; pairingError=null; pairingInfo=null; });
   try{
    await PairingService.redeemCode(code,widget.user.uid);
    if(mounted)setState(()=>pairingInfo='Connected. You can now see updates that the person chooses to share.');
@@ -497,7 +491,7 @@ class _SettingsPageState extends State<SettingsPage>{
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{
   final prefs=await SharedPreferences.getInstance();if(!mounted)return;
-  setState(()=>{voice=prefs.getBool('voice')??true,textScale=prefs.getDouble('text_scale')??1.0});
+  setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; });
   voiceGuidanceEnabled=voice;appTextScale.value=textScale;
  }
  Future<void> _saveVoice(bool value)async{
