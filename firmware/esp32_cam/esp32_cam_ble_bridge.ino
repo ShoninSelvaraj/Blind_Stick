@@ -23,6 +23,8 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
 // AI Thinker ESP32-CAM camera pins
 #define PWDN_GPIO_NUM     32
@@ -45,6 +47,29 @@
 static const char* SERVICE_UUID = "7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001";
 static const char* TELEMETRY_UUID = "7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001";
 static const char* COMMAND_UUID = "7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001";
+
+// Local, password-protected camera AP. Connect the phone to this Wi-Fi after
+// downloading the on-device model while internet is available.
+static const char* CAMERA_AP_SSID = "BlindStick-Camera";
+static const char* CAMERA_AP_PASSWORD = "StickAssist#26";
+
+// Optional HC-SR04. Do not use an SD card while these pins are occupied.
+static const int ULTRASONIC_TRIG_GPIO = 13; // Shared with microSD D3; not used by this firmware.
+static const int ULTRASONIC_ECHO_GPIO = 14; // Shared with microSD CLK; not used by this firmware.
+static const int VIBRATION_DRIVER_GPIO = 2; // Drive a transistor/MOSFET gate only; add a 10k pulldown.
+static const float STOP_DISTANCE_CM = 35.0f;
+static const float CAUTION_DISTANCE_CM = 90.0f;
+static const unsigned long SENSOR_PERIOD_MS = 150;
+static const unsigned long TELEMETRY_PERIOD_MS = 800;
+static const unsigned long MOTOR_PULSE_MS = 220;
+static const unsigned long MOTOR_REPEAT_MS = 850;
+
+WebServer cameraServer(80);
+float lastDistanceCm = -1.0f;
+unsigned long distanceMeasuredAt = 0;
+unsigned long lastSensorReadMs = 0;
+unsigned long lastMotorPulseMs = 0;
+volatile unsigned long requestedVibrationUntilMs = 0;
 
 BLECharacteristic* telemetryCharacteristic = nullptr;
 volatile bool clientConnected = false;
@@ -79,7 +104,15 @@ class CommandCallbacks final : public BLECharacteristicCallbacks {
       return;
     }
     if (!strcmp(cmd, "start")) assistanceEnabled = true;
-    if (!strcmp(cmd, "stop")) assistanceEnabled = false;
+    if (!strcmp(cmd, "stop")) {
+      assistanceEnabled = false;
+      requestedVibrationUntilMs = 0;
+    }
+    if (!strcmp(cmd, "vibrate")) {
+      int durationMs = doc["duration_ms"] | 180;
+      durationMs = constrain(durationMs, 60, 500);
+      requestedVibrationUntilMs = millis() + (unsigned long)durationMs;
+    }
   }
 };
 
@@ -128,9 +161,14 @@ void publishTelemetry() {
   doc["assistance"] = assistanceEnabled;
   doc["camera_ready"] = cameraReady;
   doc["camera_frame_available"] = cameraFrameAvailable;
-  doc["detection_status"] = "model_not_installed";
-  // Deliberately omit object, distance_cm, battery, traffic_walk and crowd:
-  // no sensor/model can currently provide truthful values on this board alone.
+  doc["detection_status"] = "runs_on_android_phone";
+  doc["camera_ap_ssid"] = CAMERA_AP_SSID;
+  doc["camera_endpoint"] = "http://192.168.4.1";
+  if (lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500) {
+    doc["distance_cm"] = lastDistanceCm;
+  }
+  // Object detection, person counts, and traffic-light colour estimates are
+  // computed on the phone from a requested camera frame. Never emit them here.
   String packet;
   serializeJson(doc, packet);
   packet += "\n";
@@ -138,10 +176,133 @@ void publishTelemetry() {
   telemetryCharacteristic->notify();
 }
 
+void handleCameraStatus() {
+  JsonDocument doc;
+  doc["device"] = "BlindStick Companion";
+  doc["camera_ready"] = cameraReady;
+  doc["assistance"] = assistanceEnabled;
+  doc["frame_endpoint"] = "/capture";
+  doc["model_inference"] = "runs_on_android_phone";
+  if (lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500) {
+    doc["distance_cm"] = lastDistanceCm;
+  }
+  String payload;
+  serializeJson(doc, payload);
+  cameraServer.sendHeader("Cache-Control", "no-store");
+  cameraServer.sendHeader("Access-Control-Allow-Origin", "*");
+  cameraServer.send(200, "application/json", payload);
+}
+
+void handleCameraCapture() {
+  if (!assistanceEnabled) {
+    cameraServer.send(409, "application/json",
+      "{\"error\":\"Assistance is paused. Start assistance in the app first.\"}");
+    return;
+  }
+  if (!cameraReady) {
+    cameraServer.send(503, "application/json",
+      "{\"error\":\"Camera is not ready\"}");
+    return;
+  }
+  camera_fb_t* frame = esp_camera_fb_get();
+  if (frame == nullptr || frame->len == 0) {
+    if (frame) esp_camera_fb_return(frame);
+    cameraServer.send(503, "application/json",
+      "{\"error\":\"Could not capture a camera frame\"}");
+    return;
+  }
+  WiFiClient client = cameraServer.client();
+  client.setNoDelay(true);
+  client.printf(
+    "HTTP/1.1 200 OK\\r\\n"
+    "Content-Type: image/jpeg\\r\\n"
+    "Cache-Control: no-store\\r\\n"
+    "Access-Control-Allow-Origin: *\\r\\n"
+    "Content-Length: %u\\r\\n"
+    "Connection: close\\r\\n\\r\\n",
+    (unsigned int)frame->len);
+  const size_t written = client.write(frame->buf, frame->len);
+  cameraFrameAvailable = written == frame->len;
+  esp_camera_fb_return(frame);
+  client.stop();
+}
+
+float readUltrasonicDistanceCm() {
+  digitalWrite(ULTRASONIC_TRIG_GPIO, LOW);
+  delayMicroseconds(3);
+  digitalWrite(ULTRASONIC_TRIG_GPIO, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ULTRASONIC_TRIG_GPIO, LOW);
+  const unsigned long duration = pulseIn(ULTRASONIC_ECHO_GPIO, HIGH, 25000UL);
+  if (duration == 0) return -1.0f;
+  const float cm = static_cast<float>(duration) / 58.0f;
+  if (cm < 2.0f || cm > 400.0f) return -1.0f;
+  return cm;
+}
+
+void updateSensorsAndHaptics(unsigned long now) {
+  if (now - lastSensorReadMs >= SENSOR_PERIOD_MS) {
+    lastSensorReadMs = now;
+    if (assistanceEnabled) {
+      const float distance = readUltrasonicDistanceCm();
+      if (distance >= 0) {
+        lastDistanceCm = distance;
+        distanceMeasuredAt = now;
+      } else if (now - distanceMeasuredAt > 1500) {
+        lastDistanceCm = -1.0f;
+      }
+    } else {
+      lastDistanceCm = -1.0f;
+    }
+  }
+
+  bool shouldVibrate = assistanceEnabled &&
+    requestedVibrationUntilMs != 0 &&
+    static_cast<long>(requestedVibrationUntilMs - now) > 0;
+  const bool freshDistance = lastDistanceCm >= 0 &&
+    now - distanceMeasuredAt < 1500;
+  if (assistanceEnabled && freshDistance) {
+    if (lastDistanceCm < STOP_DISTANCE_CM) {
+      shouldVibrate = true;
+    } else if (lastDistanceCm < CAUTION_DISTANCE_CM &&
+               now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
+      shouldVibrate = true;
+      requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
+      lastMotorPulseMs = now;
+    }
+    if (lastDistanceCm < STOP_DISTANCE_CM &&
+        now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
+      requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
+      lastMotorPulseMs = now;
+    }
+  }
+  digitalWrite(VIBRATION_DRIVER_GPIO, shouldVibrate ? HIGH : LOW);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
+
+  pinMode(ULTRASONIC_TRIG_GPIO, OUTPUT);
+  digitalWrite(ULTRASONIC_TRIG_GPIO, LOW);
+  pinMode(ULTRASONIC_ECHO_GPIO, INPUT);
+  pinMode(VIBRATION_DRIVER_GPIO, OUTPUT);
+  digitalWrite(VIBRATION_DRIVER_GPIO, LOW);
+
   cameraReady = initCamera();
+
+  WiFi.mode(WIFI_AP);
+  const bool apStarted = WiFi.softAP(CAMERA_AP_SSID, CAMERA_AP_PASSWORD, 6, false, 1);
+  Serial.printf("Camera AP %s: %s at %s\\n",
+    CAMERA_AP_SSID, apStarted ? "started" : "FAILED",
+    WiFi.softAPIP().toString().c_str());
+  cameraServer.on("/status", HTTP_GET, handleCameraStatus);
+  cameraServer.on("/capture", HTTP_GET, handleCameraCapture);
+  cameraServer.on("/", HTTP_GET, []() {
+    cameraServer.send(200, "text/plain",
+      "BlindStick Companion local camera. GET /status for device status and /capture for one JPEG frame.");
+  });
+  cameraServer.begin();
 
   BLEDevice::init("BlindStick Companion");
   BLEServer* server = BLEDevice::createServer();
@@ -172,17 +333,14 @@ void setup() {
 void loop() {
   const unsigned long now = millis();
 
-  // Capture a frame to prove the camera path works. This is not object detection.
-  if (assistanceEnabled && cameraReady && now - lastCameraCheckMs >= 500) {
-    lastCameraCheckMs = now;
-    camera_fb_t* frame = esp_camera_fb_get();
-    cameraFrameAvailable = frame != nullptr && frame->len > 0;
-    if (frame) esp_camera_fb_return(frame);
-  }
+  cameraServer.handleClient();
+  updateSensorsAndHaptics(now);
 
-  if (now - lastTelemetryMs >= 1000) {
+  // A JPEG is captured when the phone requests /capture. This avoids discarding
+  // frames every loop while allowing the phone's TFLite model to run inference.
+  if (now - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
     lastTelemetryMs = now;
     publishTelemetry();
   }
-  delay(10);
+  delay(2);
 }
