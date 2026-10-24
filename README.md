@@ -14,9 +14,10 @@ The app does not require Google Maps SDK, Google Maps API keys, paid map APIs, o
 | Search a typed destination | Public Nominatim geocoder | User-triggered search only, no autocomplete, max 1 request/second per app; results/service can be unavailable |
 | Walking route | OpenStreetMap community foot-routing server | Community demo server: no SLA and limited reasonable use; do not treat it as safety-certified |
 | Voice guidance | Android text-to-speech through `flutter_tts` | Device voice availability and language settings vary |
+| Ultrasonic distance and stick vibration | ESP32 firmware has an HC-SR04-style distance input and a transistor/MOSFET motor-driver output; live range is sent over BLE | Wiring must match the exact board, 5V ECHO needs level shifting, and the physical sensor/motor are not yet bench-tested |
 | Emergency alert | Save SOS in Firestore and optionally open the phone's SMS composer | SMS is **not sent automatically**; the user must select a recipient and tap send. Carrier SMS costs may apply |
 | Background push notification | Not included in zero-billing mode | Sending FCM push messages requires a trusted sender/server. No automatic background push is claimed |
-| Object / traffic-light / crowd AI | Not yet implemented in this prototype | Current ESP32-CAM firmware is a camera/BLE bridge, not a trained detection model |
+| Object detection / people-count crowd estimate / traffic-lamp colour estimate | Quantized SSD MobileNet V1 COCO model runs locally on Android from JPEG frames served by the ESP32-CAM; one-time download required | Common COCO classes only; crowd is a single-frame person count, signal colour is heuristic and never identifies a pedestrian WALK signal; false negatives and latency are possible |
 
 **Zero budget means no required paid service in this design; it does not mean unlimited capacity or guaranteed availability.** Do not use public community servers for high-volume or mission-critical navigation. If the project grows, self-host OpenStreetMap-derived services on hardware you already control, or use a provider only after checking its terms and price.
 
@@ -94,7 +95,16 @@ BLE service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
 
 Firmware path: `firmware/esp32_cam/esp32_cam_ble_bridge.ino`.
 
-The current firmware initializes the camera, captures frames and reports device status. It **does not** include a trained model for object detection, traffic-light recognition or crowd classification. Ultrasonic distance, battery telemetry and physical vibration also require confirmed sensors, wiring and firmware. No results should be treated as real unless the connected hardware transmits them. The board and app have not been physically validated together.
+The firmware now advertises the BLE service, creates a password-protected `BlindStick-Camera` Wi-Fi access point, serves `/status` and JPEG frames from `/capture`, reads an optional HC-SR04-style ultrasonic sensor, and provides a driver output for a vibration motor. Phone-side vision runs the quantized SSD MobileNet V1 COCO model locally via TensorFlow Lite after the user downloads it once. Detections, person count/crowd estimate, and a heuristic traffic-lamp colour estimate are **prototype results**, not certified safety outputs. Battery monitoring is still absent. The physical board, sensor, motor driver and app have not been validated together.
+
+### Camera/AI setup
+
+1. With the phone on normal internet, open **Home → Device readiness** and tap **Prepare on-device AI model**. The app downloads the official quantized COCO SSD MobileNet model once into private app storage; no per-frame cloud inference is used.
+2. Connect the phone to the Wi-Fi network **BlindStick-Camera**. The firmware's development password is `StickAssist#26`; change it before sharing the device.
+3. Return to BlindStick Companion, pair/connect over Bluetooth, and start assistance. The app fetches JPEG frames from `http://192.168.4.1/capture` and runs inference on the phone. Some phones may say the camera AP has no internet; local camera traffic can still work, but public map search/routing may lose internet access.
+4. The default firmware wiring assumes HC-SR04 TRIG on GPIO13, ECHO on GPIO14 through a suitable 5V-to-3.3V divider/level shifter, and a motor driver on GPIO2. Do not connect a motor directly to the GPIO. See `firmware/esp32_cam/README.md` before wiring; GPIO2 is a boot-strapping pin and the microSD pins are repurposed.
+
+**Important:** MobileNet SSD can recognise a traffic light-shaped object, not the pedestrian crossing signal. The lamp-colour estimate can be wrong due to distance, glare, weather, LED flicker or camera angle. It must never tell the user to cross.
 
 ## Run the app
 
