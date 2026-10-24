@@ -1405,6 +1405,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   if(result.isGranted)return true;
   if(mounted){
    await stick.announce('Background location permission was not enabled. Location sharing can still work while this app stays open.');
+   if(!mounted)return false;
    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Background access was not granted. Sharing will run only while the app is open.')));
   }
   return false;
