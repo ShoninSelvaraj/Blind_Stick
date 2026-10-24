@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -409,6 +410,8 @@ class ApiService {
 
 Future<void> signOutSafely() async {
  try{await caregiverAlertsChannel.invokeMethod<void>('stopCaregiverAlertMonitor');}catch(_){}
+ final signedInUid=FirebaseAuth.instance.currentUser?.uid;
+ if(signedInUid!=null){try{await FirebaseFirestore.instance.collection('users').doc(signedInUid).collection('fcmTokens').doc('primary').delete();}catch(_){}}
  if(stick.connected){
   try{await stick.setAssistance(false);await stick.disconnect();}catch(_){}
  }
@@ -2193,23 +2196,53 @@ class CaregiverPage extends StatefulWidget{
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
  bool _alertsPrimed=false;String? _alertPatientUid;final Set<String> _seenAlertIds=<String>{};
- bool _monitorEnabled=false;bool _monitorStarting=false;
+ bool _monitorEnabled=false;bool _monitorStarting=false;StreamSubscription<String>? _fcmTokenRefresh;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);_refreshMonitorState();}
  Future<void> _refreshMonitorState() async {try{final running=await caregiverAlertsChannel.invokeMethod<bool>('isCaregiverAlertMonitorRunning')??false;if(mounted)setState(()=>_monitorEnabled=running);}catch(_){}}
  Future<void> _enableBackgroundAlerts() async {
   if(_monitorStarting)return;
   setState(()=>_monitorStarting=true);
+  var pushTokenReady=false;
   try{
-   final permission=await Permission.notification.request();
-   if(!permission.isGranted){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications are disabled. Allow notifications in Android settings to receive background SOS alerts.')));return;}
+   final settings=await FirebaseMessaging.instance.requestPermission(alert:true,badge:true,sound:true);
+   final allowed=settings.authorizationStatus==AuthorizationStatus.authorized ||
+       settings.authorizationStatus==AuthorizationStatus.provisional;
+   if(!allowed){
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications are disabled. Enable them in Android settings to receive background SOS notifications.')));
+    return;
+   }
+   final token=await FirebaseMessaging.instance.getToken();
+   if(token!=null&&token.isNotEmpty){
+    await _saveFcmToken(token);
+    _fcmTokenRefresh ??= FirebaseMessaging.instance.onTokenRefresh.listen((refreshedToken){
+     _saveFcmToken(refreshedToken).catchError((_){});
+    });
+    pushTokenReady=true;
+   }
+   // Keep the zero-billing Firestore listener as a fallback. Push delivery also
+   // depends on the Firebase Cloud Function being deployed and network access.
    await caregiverAlertsChannel.invokeMethod<bool>('startCaregiverAlertMonitor');
    if(mounted)setState(()=>_monitorEnabled=true);
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Background SOS monitoring is enabled. Keep its persistent notification visible.')));
-  }catch(error){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));}
-  finally{if(mounted)setState(()=>_monitorStarting=false);}
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+    pushTokenReady
+     ? 'SOS notifications are enabled. Keep the monitoring notification visible; remote push also needs the Firebase notification function deployed.'
+     : 'On-device SOS monitoring is enabled. Push registration failed, so keep the app monitoring active and check your connection.',
+   )));
+  }catch(error){
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));
+  }finally{if(mounted)setState(()=>_monitorStarting=false);}
+ }
+ Future<void> _saveFcmToken(String token) async {
+  if(FirebaseAuth.instance.currentUser?.uid!=widget.user.uid)return;
+  await FirebaseFirestore.instance.collection('users').doc(widget.user.uid)
+    .collection('fcmTokens').doc('primary').set({
+      'token':token,
+      'platform':'android',
+      'updatedAt':FieldValue.serverTimestamp(),
+    });
  }
  void _contrastChanged(){if(mounted)setState((){});}
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);_fcmTokenRefresh?.cancel();codeController.dispose();super.dispose();}
 
  void _handleAlertSnapshot(String patientUid, QuerySnapshot<Map<String,dynamic>> snapshot) {
   if (_alertPatientUid != patientUid) {
