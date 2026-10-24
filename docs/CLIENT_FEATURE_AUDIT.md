@@ -18,7 +18,7 @@ This checklist maps the project's functional requirements in the CEBS Group 8 re
 | Live location sharing to caregiver | **Implemented in app code, device test pending** — opt-in live GPS stream while app is open or through Android foreground-location mode with a persistent notification | Force-stop/reboot, revoked permissions, GPS/network loss and Firestore errors can stop updates; validate stale-location timestamps and battery/privacy behavior |
 | Pair a caregiver securely | **App-side prototype implemented** — one-time, ten-minute code, one use, Firestore role/link rules; up to two linked caregivers | Must deploy Firestore rules, test owner/caregiver/unrelated-account access, test expiry/concurrent code redemption, and remove/change pairing workflow needs design |
 | SOS / emergency alert | **Partly implemented** — SOS saved to Firestore; patient can open SMS composer with a help message and location | SMS is not sent automatically; recipient must be selected and message sent. No zero-billing background push exists. No emergency-service integration or delivery guarantee |
-| Background push notification | **Disabled in zero-billing mode** | The Cloud Function reference remains in the repository but is excluded from root `firebase.json`; deploy only if project owner later authorizes a billing-enabled server approach |
+| Background caregiver SOS notification | **Native foreground-service prototype implemented without Cloud Functions** — caregiver opts in, sees a persistent monitoring notification, and receives local Android notifications for new linked-patient SOS records | Requires notification permission, signed-in caregiver, valid pairing and internet; test on physical Android versions, reboot/force-stop/battery restrictions, and Firestore reconnect. This is best-effort, not guaranteed delivery or emergency-service integration |
 | Battery/low-power monitoring | **Not implemented** | Current firmware sends no battery level or battery health; requires actual monitor hardware and validation |
 | Indoor navigation | **Not implemented** | No indoor positioning infrastructure or local map data available |
 
@@ -52,6 +52,6 @@ Do not demo any unavailable camera/sensor function as working. A successful BLE 
 4. Bench-test the ESP32 camera/BLE bridge, camera Wi-Fi endpoint, ultrasonic input and motor-driver pulse output with confirmed pins and voltage limits.
 5. Verify both model downloads, pinned SHA-256, frame transfer and TensorFlow Lite inference on a physical Android phone; measure latency and test false positives/negatives in controlled conditions.
 6. Validate the dedicated `human_red`/`human_green` model on representative scenes. Never interpret its prediction as permission to cross. Test unknown/lost-signal behavior and the audible/tactile confirmation workflow.
-7. Test crowd cue thresholds with representative scenes and test SMS compose fallback (the user must send it manually).
+7. Test crowd cue thresholds with representative scenes, opt-in background caregiver monitoring, and SMS compose fallback (the user must send it manually).
 
 **Safety boundary:** This is a companion prototype, not a certified mobility aid. It must not be the user's only means of obstacle avoidance, road-crossing decisions, or emergency communication.
