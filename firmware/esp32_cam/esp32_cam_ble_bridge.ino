@@ -1,5 +1,5 @@
 /*
- * Saathi Blind Stick — ESP32-CAM BLE bridge
+ * DishaFlow Blind Stick — ESP32-CAM BLE bridge
  * Target: AI Thinker ESP32-CAM (classic ESP32), Arduino ESP32 core.
  *
  * IMPORTANT:
@@ -124,7 +124,7 @@ void publishTelemetry() {
 
   JsonDocument doc;
   doc["protocol"] = 1;
-  doc["device"] = "saathi-esp32cam";
+  doc["device"] = "dishaflow-esp32cam";
   doc["assistance"] = assistanceEnabled;
   doc["camera_ready"] = cameraReady;
   doc["camera_frame_available"] = cameraFrameAvailable;
@@ -143,7 +143,7 @@ void setup() {
   delay(300);
   cameraReady = initCamera();
 
-  BLEDevice::init("Saathi Blind Stick");
+  BLEDevice::init("DishaFlow Blind Stick");
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
   BLEService* service = server->createService(SERVICE_UUID);
