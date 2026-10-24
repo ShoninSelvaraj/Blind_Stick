@@ -305,6 +305,9 @@ class CameraVisionService extends ChangeNotifier {
         !pedestrianSignalLost) {
       pedestrianSignalLost = true;
       pedestrianSignalState = 'unknown';
+      // Do not carry a red baseline across a long loss of visual contact;
+      // the next signal could belong to another crossing.
+      _seenPedestrianRedBaseline = false;
     } else if (_pedestrianMissingFrames >= 3) {
       pedestrianSignalState = 'unknown';
     }
