@@ -1143,7 +1143,12 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     final band = _distanceBand(distance);
     if (!force && band == _lastDistanceBand) return;
     _lastDistanceBand = band;
-    if (distance <= 50) HapticFeedback.mediumImpact();
+    if (distance <= 50) {
+      HapticFeedback.mediumImpact();
+      // Also cue the physical cane motor when BLE assistance is active; phone
+      // haptics remain the fallback when the stick is disconnected or paused.
+      unawaited(stick.pulseVibration(durationMs: distance <= 20 ? 260 : 120));
+    }
     if (distance <= 20) {
       await stick.announce('Now. ${step.instruction}');
     } else {
