@@ -1487,58 +1487,77 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    const SizedBox(height:10),
    _readinessItem(
     'Ultrasonic obstacle range',
-    t.distanceCm==null?'No distance reading received': '${t.distanceCm!.round()} centimetres',
+    t.distanceCm==null?'No live distance reading. Check the ultrasonic sensor and wiring.':'${t.distanceCm!.round()} centimetres',
     t.distanceCm==null?Icons.sensors_off:Icons.radar,
     t.distanceCm==null?Colors.orange:teal,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'Object detection',
-    t.detectionStatus=='model_not_installed'
-        ? 'Not available yet — no trained detection model is installed.'
-        : 'Awaiting verified detections from the connected device.',
+    'On-device vision model',
+    vision.modelReady?'SSD MobileNet COCO is downloaded and runs on this phone.':'Not downloaded yet. Prepare it while internet is available.',
     Icons.center_focus_strong,
-    Colors.orange,
+    vision.modelReady?teal:Colors.orange,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'Traffic signal guidance',
-    'Not implemented in the current camera firmware. Do not rely on this app to decide when to cross.',
-    Icons.traffic,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Crowd density warning',
-    'Not implemented in the current camera firmware.',
-    Icons.groups_outlined,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Stick vibration motor',
-    'Physical motor is not controlled by current firmware. The app only provides phone haptics for supported warnings and turn prompts.',
-    Icons.vibration,
-    Colors.orange,
-   ),
-   const SizedBox(height:8),
-   _readinessItem(
-    'Camera and AI',
-    !stick.connected?'Connect the stick to check camera status':t.detectionStatus=='model_not_installed'?'Camera bridge detected; object-detection AI is not installed':t.cameraReady==true?'Camera reports ready; AI results still need verification':'Camera status not confirmed',
+    'Camera Wi-Fi connection',
+    vision.cameraReachable?'ESP32-CAM is reachable at ${vision.endpoint}.':'Not connected. Join the stick camera Wi-Fi, then tap Check camera.',
     Icons.camera_alt_outlined,
-    t.detectionStatus=='model_not_installed'||!stick.connected?Colors.orange:teal,
+    vision.cameraReachable?teal:Colors.orange,
    ),
-   if(stick.lastError!=null)Padding(
-    padding:const EdgeInsets.only(top:12),
-    child:Semantics(liveRegion:true,child:Container(
-     padding:const EdgeInsets.all(14),
-     decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),
-     child:Text(stick.lastError!,style:const TextStyle(color:red,fontSize:16,fontWeight:FontWeight.w700)),
-    )),
+   const SizedBox(height:8),
+   Semantics(liveRegion:true,child:Container(
+    padding:const EdgeInsets.all(16),
+    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFDCE5E9))),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Text('Camera AI status',style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:navy)),
+     const SizedBox(height:6),
+     Text(vision.status,style:const TextStyle(fontSize:15,color:Color(0xFF59697B))),
+     if(vision.modelReady&&vision.detections.isNotEmpty)Padding(
+      padding:const EdgeInsets.only(top:6),
+      child:Text('Detected: ${vision.detections.take(5).map((d)=>d['label']).join(', ')}. People: ${vision.personCount}. Crowd estimate: ${vision.crowdLevel}.',style:TextStyle(fontSize:15,fontWeight:FontWeight.w700,color:navy)),
+     ),
+     if(vision.trafficState!='not_detected')Padding(
+      padding:const EdgeInsets.only(top:4),
+      child:Text('Traffic lamp estimate: ${vision.trafficState}. This does not identify a pedestrian walk signal.',style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
+     ),
+    ]),
+   )),
+   const SizedBox(height:10),
+   SizedBox(
+    height:62,
+    child:FilledButton.icon(
+     onPressed:vision.modelReady?null:vision.prepareModel,
+     icon:Icon(vision.modelReady?Icons.check_circle_outline:Icons.download_for_offline_outlined,size:26),
+     label:Text(vision.modelReady?'On-device AI model prepared':'Prepare on-device AI model',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+    ),
    ),
-   const SizedBox(height:14),
+   const SizedBox(height:8),
+   SizedBox(
+    height:58,
+    child:OutlinedButton.icon(
+     onPressed:vision.checkCamera,
+     icon:const Icon(Icons.wifi_tethering_outlined,size:24),
+     label:const Text('Check camera connection',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:8),
+   SizedBox(
+    height:56,
+    child:OutlinedButton.icon(
+     onPressed:vision.openWifiSettings,
+     icon:const Icon(Icons.wifi),
+     label:const Text('Open Wi-Fi settings',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
+    ),
+   ),
+   const SizedBox(height:10),
    const Text(
-    'Safety: the current hardware bridge does not yet provide verified ultrasonic distance or trained object/traffic/crowd detections. Keep using your usual mobility technique and stop if device data is missing.',
+    'Setup: first prepare the AI model while connected to the internet. Then join Wi-Fi “BlindStick-Camera” (default password: StickAssist#26). Return here, connect the stick over Bluetooth, and start assistance. Keep the camera AP password private and change the firmware default before sharing the prototype publicly.',
+    style:TextStyle(color:Color(0xFF59697B),fontSize:14),
+   ),
+   const SizedBox(height:10),
+   const Text(
+    'Model limitation: the COCO detector recognises common objects and traffic-light-shaped objects; crowd level is estimated from people counted in one frame. A colour estimate cannot tell whether a pedestrian signal says WALK, and it must never be treated as permission to cross.',
     style:TextStyle(color:Color(0xFF59697B),fontSize:14),
    ),
   ],
