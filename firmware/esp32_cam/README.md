@@ -9,8 +9,8 @@ This folder targets the **AI Thinker ESP32-CAM-style board shown in the project 
 - Accepts `hello`, `start`, `stop`, and `vibrate` BLE commands.
 - Captures a camera frame while assistance is enabled.
 - Runs a password-protected Wi-Fi AP named BlindStick-Camera and serves /status plus one JPEG frame from /capture while assistance is active.
-- Can read an optional HC-SR04 ultrasonic sensor and publish fresh distance_cm over BLE.
-- Drives an optional vibration motor through a transistor/MOSFET driver for local distance alerts, including if BLE disconnects after assistance has started.
+- Can read an optional HC-SR04 ultrasonic sensor and publish both `range_sensor_status` (`fresh` / `unavailable`) and `distance_cm` over BLE.
+- Drives an optional vibration motor through a transistor/MOSFET driver for local distance alerts, including if BLE disconnects after assistance has started. Close obstacles use longer/faster pulses; the wider caution range uses shorter/slower pulses.
 - Object detection, people-count/crowd estimate, and traffic-lamp colour estimate run locally on the Android phone from camera JPEGs; no paid cloud inference API is used.
 
 ## What it does not do yet
@@ -71,7 +71,7 @@ Leave the microSD card unused because its pins are shared with the sensor inputs
 
 Use a stable power supply sized for the ESP32-CAM, camera, and sensor, with a shared ground. This pin mapping is a starter assumption and must be checked against the exact board revision. GPIO2 is a boot-strapping pin, so incorrect external circuitry can prevent startup. If the board fails to boot, disconnect the driver input and retest before changing pins.
 
-The firmware provides local vibration for fresh distance measurements below the caution/stop thresholds. Unknown, invalid, timed-out, or stale measurements are not presented as valid distances. The phone also provides haptic cues for camera detections and turn proximity when BLE assistance is connected.
+The firmware provides local vibration for fresh distance measurements below the caution/stop thresholds. Urgent close obstacles pulse for 300 ms approximately every 450 ms; caution-range obstacles pulse for 100 ms approximately every 1400 ms. These defaults are only starting values for bench tuning, not validated safety thresholds. Unknown, invalid, timed-out, or stale measurements are reported as unavailable, and the phone speaks a warning rather than treating them as a clear path. The phone also provides haptic cues for camera detections and turn proximity when BLE assistance is connected.
 
 ## On-device vision model and limitations
 
