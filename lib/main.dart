@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,6 +14,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geolocator_android/geolocator_android.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -477,16 +479,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         _error = 'Turn on location and allow location permission to get a walking route.';
       });
     }
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(_onPosition, onError: (_) {
-      if (mounted) {
-        setState(() => _error = 'Live location updates are unavailable. You can still review the route.');
-      }
-    });
+    await _startPositionStream(guidanceMode: false);
 
     if (widget.initialDestination != null) {
       _destination = widget.initialDestination;
@@ -497,18 +490,77 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     }
   }
 
-  void _centerOn(Position position) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  Future<void> _startPositionStream({required bool guidanceMode}) async {
+    await _positionSubscription?.cancel();
+    LocationSettings settings = const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    );
+    if (guidanceMode && defaultTargetPlatform == TargetPlatform.android) {
+      settings = const AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+        intervalDuration: Duration(seconds: 2),
+        foregroundNotificationConfig: ForegroundNotificationConfig(
+          notificationTitle: 'BlindStick Companion navigation',
+          notificationText: 'Spoken walking guidance is active',
+          notificationChannelName: 'Walking navigation',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    if (!mounted) return;
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: settings,
+    ).listen(_onPosition, onError: (_) {
       if (!mounted) return;
-      try {
-        _mapController.move(LatLng(position.latitude, position.longitude), 15);
-      } catch (_) {
-        // The controller might not be attached yet.
+      setState(() => _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.');
+      if (_guidance) {
+        stick.announce('Warning. Live GPS updates stopped. Stop in a safe place and check your location and permissions.');
       }
     });
   }
 
-  void _onPosition(Position position) {
+  Future<bool?> _requestBackgroundGuidance() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    if (await Permission.locationAlways.isGranted) return true;
+    if (!mounted) return null;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Keep spoken navigation active?'),
+        content: const Text(
+          'To keep GPS turn guidance working when the screen is off or you switch apps, Android needs background location permission. Location updates are used only while this navigation screen is active. You can also choose foreground-only guidance and keep this app open with the screen on.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'foreground'),
+            child: const Text('Keep app open'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'background'),
+            child: const Text('Allow background guidance'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || choice == 'cancel') return null;
+    if (choice == 'foreground') return false;
+    final result = await Permission.locationAlways.request();
+    if (result.isGranted) return true;
+    if (mounted) {
+      setState(() => _error = 'Background location was not enabled. Spoken directions can run while this app stays open, but screen-off navigation is not enabled. Change location permission in Android app settings if needed.');
+      await stick.announce('Background location was not enabled. Keep BlindStick Companion open and the screen on for live spoken walking directions.');
+    }
+    return false;
+  }
+
+    void _onPosition(Position position) {
     if (!mounted) return;
     setState(() => _position = position);
     if (!_guidance || _routePoints.isEmpty) return;
@@ -566,6 +618,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         _status = 'Route deviation suspected';
         _error = 'GPS suggests you may be away from the mapped route. Stop somewhere safe before recalculating.';
       });
+      _startPositionStream(guidanceMode: false);
+      HapticFeedback.heavyImpact();
       stick.announce('Warning. Your GPS position may be away from the mapped walking route. I have paused turn instructions. Stop somewhere safe and use Recalculate route before continuing.');
       return;
     }
@@ -871,6 +925,9 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       await stick.announce('Cannot start spoken navigation. A current GPS fix and mapped route are required.');
       return;
     }
+    final backgroundAllowed = await _requestBackgroundGuidance();
+    if (backgroundAllowed == null) return;
+    await _startPositionStream(guidanceMode: backgroundAllowed);
     setState(() {
       _guidance = true;
       _offRoute = false;
@@ -878,10 +935,16 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _poorAccuracyAnnounced = false;
       _lastDistanceBand = null;
       _nextStepIndex = _firstUpcomingManeuverIndex();
-      _status = 'Walking guidance active';
-      _error = null;
+      _status = backgroundAllowed ? 'Walking guidance active' : 'Walking guidance active — keep app open';
+      _error = backgroundAllowed
+          ? null
+          : 'For screen-off guidance, allow background location. Until then, keep this app open and the screen on.';
     });
-    await stick.announce('Spoken walking guidance started. ${_routeSummary()} GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.');
+    await stick.announce(
+      'Spoken walking guidance started. ${_routeSummary()} '
+      '${backgroundAllowed ? 'Background location is enabled for this route.' : 'Keep the app open and screen on for continuous live GPS updates.'} '
+      'GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.',
+    );
     if (_nextStepIndex < _steps.length) {
       await _speakCurrentStep(force: true);
     } else {
@@ -894,6 +957,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _guidance = false;
       _status = _offRoute ? 'Route deviation suspected' : 'Spoken guidance paused';
     });
+    await _startPositionStream(guidanceMode: false);
     await stick.announce('Spoken walking guidance paused.');
   }
 
@@ -909,6 +973,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     final band = _distanceBand(distance);
     if (!force && band == _lastDistanceBand) return;
     _lastDistanceBand = band;
+    if (distance <= 50) HapticFeedback.mediumImpact();
     if (distance <= 20) {
       await stick.announce('Now. ${step.instruction}');
     } else {
@@ -922,6 +987,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _offRoute = false;
       _status = 'Near the mapped destination';
     });
+    await _startPositionStream(guidanceMode: false);
+    HapticFeedback.heavyImpact();
     await stick.announce('You appear to be near the mapped destination point. Stop in a safe place and confirm the location using local signs or help from a trusted person before proceeding.');
   }
 
