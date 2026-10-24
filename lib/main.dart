@@ -434,6 +434,10 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   double? _durationSeconds;
   bool _busy = false;
   bool _guidance = false;
+  bool _offRoute = false;
+  bool _poorAccuracyAnnounced = false;
+  int _offRouteSamples = 0;
+  int? _lastDistanceBand;
   int _nextStepIndex = 0;
   String _status = 'Getting your location';
   String? _error;
@@ -507,25 +511,146 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   void _onPosition(Position position) {
     if (!mounted) return;
     setState(() => _position = position);
-    if (_guidance && _nextStepIndex < _steps.length) {
-      final step = _steps[_nextStepIndex];
-      final accuracy = position.accuracy.isFinite ? position.accuracy : 20.0;
-      final threshold = math.max(20.0, accuracy);
+    if (!_guidance || _routePoints.isEmpty) return;
+
+    final accuracy = position.accuracy.isFinite && position.accuracy > 0
+        ? position.accuracy
+        : double.infinity;
+    if (accuracy > 45) {
+      if (!_poorAccuracyAnnounced) {
+        _poorAccuracyAnnounced = true;
+        setState(() {
+          _status = 'GPS accuracy is poor';
+          _error = 'Live GPS accuracy is too poor to verify turns or route position. Stop somewhere safe and wait for a better location fix.';
+        });
+        stick.announce('Warning. GPS accuracy is poor. I cannot reliably verify your next turn or whether you are on the route. Stop in a safe place and wait for a better location fix.');
+      }
+      return;
+    }
+    if (_poorAccuracyAnnounced) {
+      _poorAccuracyAnnounced = false;
+      setState(() {
+        _status = 'Walking guidance active';
+        if (_error?.startsWith('Live GPS accuracy is too poor') ?? false) {
+          _error = null;
+        }
+      });
+      stick.announce('GPS accuracy has improved. Checking the route again.');
+    }
+
+    final destination = _destination;
+    if (destination != null) {
+      final destinationDistance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        destination.latitude,
+        destination.longitude,
+      );
+      if (destinationDistance <= math.max(25.0, accuracy)) {
+        _finishGuidance();
+        return;
+      }
+    }
+
+    final nearestRouteDistance = _distanceFromRoute(position);
+    final offRouteThreshold = math.max(45.0, accuracy * 2);
+    if (nearestRouteDistance > offRouteThreshold) {
+      _offRouteSamples++;
+    } else if (nearestRouteDistance < offRouteThreshold * 0.7) {
+      _offRouteSamples = 0;
+    }
+    if (_offRouteSamples >= 3 && !_offRoute) {
+      setState(() {
+        _offRoute = true;
+        _guidance = false;
+        _status = 'Route deviation suspected';
+        _error = 'GPS suggests you may be away from the mapped route. Stop somewhere safe before recalculating.';
+      });
+      stick.announce('Warning. Your GPS position may be away from the mapped walking route. I have paused turn instructions. Stop somewhere safe and use Recalculate route before continuing.');
+      return;
+    }
+
+    if (_guidance) {
+      try {
+        _mapController.move(LatLng(position.latitude, position.longitude), 16);
+      } catch (_) {
+        // The map may not have attached yet.
+      }
+    }
+
+    if (_nextStepIndex >= _steps.length) return;
+    final step = _steps[_nextStepIndex];
+    final distance = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      step.location.latitude,
+      step.location.longitude,
+    );
+    final turnThreshold = math.max(12.0, math.min(25.0, accuracy * 1.5));
+    if (distance <= turnThreshold) {
+      _nextStepIndex = _followingManeuverIndex(_nextStepIndex);
+      _lastDistanceBand = null;
+      if (_nextStepIndex < _steps.length) {
+        _speakCurrentStep(force: true);
+      } else {
+        stick.announce('No further turns are listed. Continue toward the mapped destination. I will warn when you are near the destination point.');
+      }
+      return;
+    }
+    final band = _distanceBand(distance);
+    if (band != _lastDistanceBand) _speakCurrentStep();
+  }
+
+  double _distanceFromRoute(Position position) {
+    var nearest = double.infinity;
+    for (final point in _routePoints) {
       final distance = Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        step.location.latitude,
-        step.location.longitude,
+        point.latitude,
+        point.longitude,
       );
-      if (distance <= threshold) {
-        _nextStepIndex++;
-        if (_nextStepIndex >= _steps.length) {
-          _finishGuidance();
-        } else {
-          _speakCurrentStep();
-        }
-      }
+      if (distance < nearest) nearest = distance;
     }
+    return nearest;
+  }
+
+  int _firstUpcomingManeuverIndex() {
+    for (var i = 0; i < _steps.length; i++) {
+      final instruction = _steps[i].instruction;
+      if (instruction.startsWith('Start walking') ||
+          instruction.startsWith('You have arrived at your destination')) {
+        continue;
+      }
+      return i;
+    }
+    return _steps.length;
+  }
+
+  int _followingManeuverIndex(int index) {
+    for (var i = index + 1; i < _steps.length; i++) {
+      final instruction = _steps[i].instruction;
+      if (instruction.startsWith('Start walking') ||
+          instruction.startsWith('You have arrived at your destination')) {
+        continue;
+      }
+      return i;
+    }
+    return _steps.length;
+  }
+
+  int _distanceBand(double distance) {
+    if (distance <= 20) return 0;
+    if (distance <= 50) return 20;
+    if (distance <= 100) return 50;
+    if (distance <= 200) return 100;
+    if (distance <= 500) return 200;
+    return 500;
+  }
+
+  String _formatDistance(double distance) {
+    if (distance >= 1000) return '${(distance / 1000).toStringAsFixed(1)} kilometres';
+    return '${distance.round()} metres';
   }
 
   Future<void> _searchAndRoute() async {
@@ -682,8 +807,12 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _distanceMeters = (route['distance'] as num?)?.toDouble();
       _durationSeconds = (route['duration'] as num?)?.toDouble();
       _status = 'Walking route ready';
-      _nextStepIndex = steps.length > 1 ? 1 : 0;
+      _nextStepIndex = _firstUpcomingManeuverIndex();
       _guidance = false;
+      _offRoute = false;
+      _offRouteSamples = 0;
+      _poorAccuracyAnnounced = false;
+      _lastDistanceBand = null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || points.isEmpty) return;
@@ -737,23 +866,63 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   }
 
   Future<void> _startGuidance() async {
-    if (_steps.isEmpty) return;
+    if (_routePoints.isEmpty || _steps.isEmpty || _position == null) {
+      setState(() => _error = 'A current GPS fix and a mapped route are required before spoken navigation can start.');
+      await stick.announce('Cannot start spoken navigation. A current GPS fix and mapped route are required.');
+      return;
+    }
     setState(() {
       _guidance = true;
-      _nextStepIndex = _steps.length > 1 ? 1 : 0;
+      _offRoute = false;
+      _offRouteSamples = 0;
+      _poorAccuracyAnnounced = false;
+      _lastDistanceBand = null;
+      _nextStepIndex = _firstUpcomingManeuverIndex();
+      _status = 'Walking guidance active';
+      _error = null;
     });
-    await stick.announce('Spoken route guidance started. ${_routeSummary()}');
-    if (_nextStepIndex < _steps.length) await _speakCurrentStep();
+    await stick.announce('Spoken walking guidance started. ${_routeSummary()} GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.');
+    if (_nextStepIndex < _steps.length) {
+      await _speakCurrentStep(force: true);
+    } else {
+      await stick.announce('The route service returned no intermediate turns. Follow the mapped route only if it matches your surroundings, and stop if unsure.');
+    }
   }
 
-  Future<void> _speakCurrentStep() async {
-    if (!_guidance || _nextStepIndex >= _steps.length) return;
-    await stick.announce('Next instruction. ${_steps[_nextStepIndex].instruction}');
+  Future<void> _stopGuidance() async {
+    setState(() {
+      _guidance = false;
+      _status = _offRoute ? 'Route deviation suspected' : 'Spoken guidance paused';
+    });
+    await stick.announce('Spoken walking guidance paused.');
+  }
+
+  Future<void> _speakCurrentStep({bool force = false}) async {
+    if (!_guidance || _nextStepIndex >= _steps.length || _position == null) return;
+    final step = _steps[_nextStepIndex];
+    final distance = Geolocator.distanceBetween(
+      _position!.latitude,
+      _position!.longitude,
+      step.location.latitude,
+      step.location.longitude,
+    );
+    final band = _distanceBand(distance);
+    if (!force && band == _lastDistanceBand) return;
+    _lastDistanceBand = band;
+    if (distance <= 20) {
+      await stick.announce('Now. ${step.instruction}');
+    } else {
+      await stick.announce('Next instruction in approximately ${_formatDistance(distance)}. ${step.instruction}');
+    }
   }
 
   Future<void> _finishGuidance() async {
-    setState(() => _guidance = false);
-    await stick.announce('You have reached the final mapped maneuver. Confirm your surroundings before proceeding.');
+    setState(() {
+      _guidance = false;
+      _offRoute = false;
+      _status = 'Near the mapped destination';
+    });
+    await stick.announce('You appear to be near the mapped destination point. Stop in a safe place and confirm the location using local signs or help from a trusted person before proceeding.');
   }
 
   @override
@@ -852,6 +1021,16 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                       child: Text(_routeSummary(), style: const TextStyle(fontSize: 16)),
                     ),
                 ],
+                if (_offRoute)
+                  Semantics(
+                    liveRegion: true,
+                    label: 'Route warning. GPS suggests you may be away from the mapped route. Stop safely and recalculate.',
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(14)),
+                      child: const Text('Route warning: your GPS position may be away from the mapped route. Spoken turns are paused. Stop somewhere safe and recalculate before continuing.', style: TextStyle(color: red, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
@@ -861,16 +1040,16 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                 SizedBox(
                   height: 60,
                   child: FilledButton.icon(
-                    onPressed: _steps.isEmpty || _busy ? null : _startGuidance,
-                    icon: Icon(_guidance ? Icons.volume_up : Icons.record_voice_over),
-                    label: Text(_guidance ? 'Spoken guidance active' : 'Start spoken directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    onPressed: _steps.isEmpty || _busy ? null : (_guidance ? _stopGuidance : _startGuidance),
+                    icon: Icon(_guidance ? Icons.pause_circle_outline : Icons.record_voice_over),
+                    label: Text(_guidance ? 'Stop spoken directions' : 'Start spoken directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                   ),
                 ),
                 if (_destination != null)
                   TextButton.icon(
                     onPressed: _busy ? null : _fetchRoute,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('Recalculate route from current location'),
+                    label: Text(_offRoute ? 'Recalculate route before continuing' : 'Recalculate route from current location'),
                   ),
                 const SizedBox(height: 10),
                 const Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
