@@ -11,11 +11,11 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "saathi_emergency_alerts",
-                "Saathi emergency alerts",
+                "dishaflow_emergency_alerts",
+                "DishaFlow emergency alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Urgent SOS alerts from a person linked to your Saathi account"
+                description = "Urgent SOS alerts from a person linked to your DishaFlow account"
                 enableVibration(true)
                 setShowBadge(true)
             }
