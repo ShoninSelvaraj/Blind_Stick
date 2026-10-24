@@ -49,7 +49,7 @@ tasks.register("prepareBundledVisionModels") {
         def sha256 = { File f ->
             MessageDigest.getInstance("SHA-256").digest(f.bytes).collect { String.format("%02x", it) }.join()
         }
-        if (cocoModelAsset.length() < 100_000 || new String(cocoModelAsset.bytes[4..7], "US-ASCII") != "TFL3") {
+        if (cocoModelAsset.length() < 100_000 || new String(cocoModelAsset.bytes, 4, 4, "US-ASCII") != "TFL3") {
             throw new GradleException("Bundled COCO SSD model failed TFLite integrity validation")
         }
         if (signalModelAsset.length() < 2_000_000 || sha256(signalModelAsset) != signalModelSha256 ||
