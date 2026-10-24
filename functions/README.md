@@ -1,4 +1,4 @@
-# Firebase Cloud Function — Saathi SOS push
+# Firebase Cloud Function — DishaFlow SOS push
 
 This function sends a background Firebase Cloud Messaging notification when an authorized patient writes a new `sos` alert to `patients/{patientUid}/alerts/{alertId}`.
 
