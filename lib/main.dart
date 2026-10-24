@@ -273,6 +273,11 @@ class _LoginPageState extends State<LoginPage> {
  const SizedBox(height:20),const Text('You can change your choice on a new account only. Caregiver access to someone’s location always requires a private, one-time pairing code from that person.',textAlign:TextAlign.center,style:TextStyle(color:Color(0xFF64748B),fontSize:13))
  ])));
 }
+const String expectedStickDeviceId = 'blindstick_companion-esp32cam';
+
+bool isCompatibleStickTelemetry(Map<String, dynamic> packet) =>
+    packet['protocol'] == 1 && packet['device'] == expectedStickDeviceId;
+
 class StickTelemetry {
  double? distanceCm;
  String object='Waiting for device data';
@@ -568,8 +573,7 @@ class BleStickService extends ChangeNotifier {
      lastError='Stick sent a telemetry packet that is not a JSON object.';
      continue;
     }
-    if(decoded['protocol']!=1 ||
-       decoded['device']!='blindstick_companion-esp32cam'){
+    if(!isCompatibleStickTelemetry(decoded)){
      lastError='Incompatible stick firmware/protocol. Expected BlindStick Companion protocol v1.';
      continue;
     }
