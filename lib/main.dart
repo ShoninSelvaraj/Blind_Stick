@@ -66,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
  Future<void> submit() async {
   if(busy)return;
   if(email.text.trim().isEmpty||!email.text.contains('@')||password.text.length<6||(createAccount&&name.text.trim().isEmpty)){setState(()=>error=createAccount?'Enter your name, a valid email and a password of at least 6 characters.':'Enter your email and password (at least 6 characters).');return;}
-  setState(()=>{busy=true,error=null,info=null});
+  setState(() { busy=true; error=null; info=null; });
   try{
    if(createAccount){
     final credential=await FirebaseAuth.instance.createUserWithEmailAndPassword(email:email.text.trim(),password:password.text);
@@ -98,7 +98,7 @@ class _LoginPageState extends State<LoginPage> {
  if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:const TextStyle(color:teal))),
  const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:busy?null:submit,icon:busy?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(createAccount?Icons.person_add_alt_1:Icons.arrow_forward),label:Text(busy?'Please wait…':createAccount?'Create account':'Sign in',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),
  if(!createAccount)Align(alignment:Alignment.centerRight,child:TextButton(onPressed:busy?null:resetPassword,child:const Text('Forgot password?'))),
- TextButton(onPressed:busy?null:()=>setState(()=>{createAccount=!createAccount,error=null,info=null}),child:Text(createAccount?'Already have an account? Sign in':'New here? Create an account')),
+ TextButton(onPressed:busy?null:()=>setState(() { createAccount=!createAccount; error=null; info=null; }),child:Text(createAccount?'Already have an account? Sign in':'New here? Create an account')),
  const SizedBox(height:20),const Text('A project administrator must assign patient/caregiver roles and authorize pairing before an account can access personal data or control a stick.',textAlign:TextAlign.center,style:TextStyle(color:Color(0xFF64748B),fontSize:13))
  ])));
 }
@@ -122,10 +122,33 @@ class ApiService {
  Future<bool> send(String path,Map<String,dynamic> body)async{final u=uri(path);if(u==null)return false;try{final r=await http.post(u,headers:headers,body:jsonEncode(body)).timeout(const Duration(seconds:8));return r.statusCode>=200&&r.statusCode<300;}catch(_){return false;}}
  Future<Map<String,dynamic>?> getJson(String path)async{final u=uri(path);if(u==null)return null;try{final r=await http.get(u,headers:headers).timeout(const Duration(seconds:8));if(r.statusCode<200||r.statusCode>=300)return null;final d=jsonDecode(r.body);return d is Map<String,dynamic>?d:null;}catch(_){return null;}}
  Future<bool> getOk(String path)async=>await getJson(path)!=null;
- Future<bool> sos(String patient,Position? pos,String detail)=>send('/api/sos',{'patient_id':patient,'message':detail,'latitude':pos?.latitude,'longitude':pos?.longitude,'created_at':DateTime.now().toUtc().toIso8601String()});
- Future<bool> location(String patient,Position pos)=>send('/api/locations',{'patient_id':patient,'latitude':pos.latitude,'longitude':pos.longitude,'accuracy_m':pos.accuracy,'recorded_at':DateTime.now().toUtc().toIso8601String()});
- Future<bool> event(String patient,String kind,String detail)=>send('/api/events',{'patient_id':patient,'type':kind,'detail':detail,'created_at':DateTime.now().toUtc().toIso8601String()});
- Future<bool> caregiverStatus(String patient)=>getOk('/api/patients/${Uri.encodeComponent(patient)}/status');
+ Future<bool> sos(String patient,Position? pos,String detail) async {
+  try {
+   await FirebaseFirestore.instance.collection('patients').doc(patient).collection('alerts').add({
+    'type':'sos','message':detail,'createdAt':FieldValue.serverTimestamp(),
+    if(pos!=null)'latitude':pos.latitude,if(pos!=null)'longitude':pos.longitude,'deliveryStatus':'created_in_firestore'
+   });
+   return true;
+  } catch (_) { return false; }
+ }
+ Future<bool> location(String patient,Position pos) async {
+  try {
+   final db=FirebaseFirestore.instance;
+   final loc={'latitude':pos.latitude,'longitude':pos.longitude,'accuracyM':pos.accuracy,'recordedAt':FieldValue.serverTimestamp()};
+   await db.collection('patients').doc(patient).collection('locations').add(loc);
+   await db.collection('patients').doc(patient).update({'lastLocation':loc,'lastSeenAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()});
+   return true;
+  } catch (_) { return false; }
+ }
+ Future<bool> event(String patient,String kind,String detail) async {
+  try {
+   await FirebaseFirestore.instance.collection('patients').doc(patient).collection('alerts').add({
+    'type':kind,'message':detail,'createdAt':FieldValue.serverTimestamp(),'deliveryStatus':'created_in_firestore'
+   });
+   return true;
+  } catch (_) { return false; }
+ }
+ Future<bool> caregiverStatus(String patient) async { try { return (await FirebaseFirestore.instance.collection('patients').doc(patient).get()).exists; } catch (_) { return false; } }
 }
 
 class BleStickService extends ChangeNotifier {
@@ -177,12 +200,6 @@ Future<void> openNavigation(BuildContext context,String destination) async {
     showMessage('Please enter a destination first.');
     return;
   }
-  final pos = await getPosition();
-  if (!context.mounted) return;
-  if (pos == null) {
-    showMessage('Location unavailable. Enable location permission and GPS, then try again.');
-    return;
-  }
   final q = Uri.encodeComponent(destination.trim());
   final route = Uri.parse('https://www.google.com/maps/dir/?api=1&origin=${pos.latitude},${pos.longitude}&destination=$q&travelmode=walking&dir_action=navigate');
   try {
@@ -195,12 +212,13 @@ Future<void> openNavigation(BuildContext context,String destination) async {
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
 class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer;String locationText='Location not checked yet';
- @override void initState(){super.initState();_load();stick.addListener(_changed);}
+ @override void initState(){super.initState();_load();_ensurePatientRecord();stick.addListener(_changed);}
+ Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
  void _changed(){if(!mounted)return;setState((){});}
- Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.username,p);}
+ Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.uid,p);}
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
- Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This will attempt to send your location and SOS message to the configured backend. If the backend is not configured or the network is unavailable, no caregiver will be notified.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.username,p,'Patient requested emergency assistance');await api.event(widget.user.username,'sos',sent?'SOS submitted to backend':'SOS attempt failed — backend unavailable');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The backend accepted the alert. Please also use your usual emergency contact method if you are in danger.':'No alert was delivered. Configure the backend and internet, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
+ Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This will save an SOS alert to your linked patient record in Firestore. A caregiver can see it when they refresh or while viewing alerts; push notifications are not configured yet.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The alert was saved to Firestore. This does not confirm that a caregiver has seen it. Use your usual emergency contact method too if you are in danger.':'The alert could not be saved. Check internet and Firestore permissions, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
  @override void dispose(){destination.dispose();locationTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('Saathi · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
   Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
@@ -218,12 +236,12 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
 }
 
 class CaregiverPage extends StatefulWidget{final AppUser user;const CaregiverPage({super.key,required this.user});@override State<CaregiverPage> createState()=>_CaregiverPageState();}
-class _CaregiverPageState extends State<CaregiverPage>{final patient=TextEditingController(text:'patient');final api=ApiService.instance;String status='Not checked';bool busy=false;double? patientLat,patientLon;String latestAlert='No alert data received';Timer? timer;
+class _CaregiverPageState extends State<CaregiverPage>{final patient=TextEditingController();final api=ApiService.instance;String status='Not checked';bool busy=false;double? patientLat,patientLon;String latestAlert='No alert data received';Timer? timer;
  @override void initState(){super.initState();_check();timer=Timer.periodic(const Duration(seconds:45),(_)=>_check(silent:true));}
  Future<void> _check({bool silent=false})async{if(busy)return;busy=true;final data=await api.getJson('/api/patients/${Uri.encodeComponent(patient.text.trim())}/status');if(!mounted)return;final loc=data?['last_location'];final alerts=data?['recent_alerts'];setState((){status=api.baseUrl.isEmpty?'Backend not configured':data==null?'Could not reach patient status endpoint':'Patient status received';if(loc is Map){final a=loc['latitude'];final b=loc['longitude'];patientLat=a is num?a.toDouble():null;patientLon=b is num?b.toDouble():null;}if(alerts is List&&alerts.isNotEmpty){final a=alerts.first;latestAlert=a is Map?'${a['type']??'Alert'} · ${a['created_at']??''}':a.toString();}});busy=false;if(!silent)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(status)));}
  Future<void> _openLastLocation()async{if(patientLat==null||patientLon==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('No patient coordinates have been returned by the backend yet.')));return;}final url=Uri.parse('https://www.google.com/maps/search/?api=1&query=$patientLat,$patientLon');await launchUrl(url,mode:LaunchMode.externalApplication);}
  @override void dispose(){patient.dispose();timer?.cancel();super.dispose();}
- @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('Saathi · Caregiver',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.all(20),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.health_and_safety_outlined,color:Color(0xFF9FF0D0),size:36),SizedBox(height:16),Text('Care from a distance.',style:TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.w900)),SizedBox(height:8),Text('Check connection and backend status for the person you support.',style:TextStyle(color:Colors.white70,fontSize:15))])),const SizedBox(height:22),const Text('Patient account',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:8),TextField(controller:patient,decoration:const InputDecoration(labelText:'Patient username',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12),SizedBox(height:54,child:FilledButton.icon(onPressed:()=>_check(),icon:const Icon(Icons.sync),label:const Text('Check patient status'))),const SizedBox(height:12),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(status,style:const TextStyle(fontWeight:FontWeight.w700))),const SizedBox(height:20),const Text('Latest patient update',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:8),Text('Latest alert: $latestAlert'),const SizedBox(height:8),Text(patientLat==null?'No location received yet':'Last location: ${patientLat!.toStringAsFixed(5)}, ${patientLon!.toStringAsFixed(5)}'),const SizedBox(height:16),const Text('The caregiver dashboard reads the configured backend response. It never invents patient location or alert data.',style:TextStyle(color:Color(0xFF64748B))),const SizedBox(height:16),OutlinedButton.icon(onPressed:_openLastLocation,icon:const Icon(Icons.map_outlined),label:const Text('Open last known location in Maps')),const SizedBox(height:12),const Text('For privacy, only monitor a patient who has consented and has been paired through your backend.',style:TextStyle(color:Color(0xFF64748B))) ]));
+ @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('Saathi · Caregiver',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.all(20),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(Icons.health_and_safety_outlined,color:Color(0xFF9FF0D0),size:36),SizedBox(height:16),Text('Care from a distance.',style:TextStyle(color:Colors.white,fontSize:27,fontWeight:FontWeight.w900)),SizedBox(height:8),Text('Check connection and backend status for the person you support.',style:TextStyle(color:Colors.white70,fontSize:15))])),const SizedBox(height:22),const Text('Patient account',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:8),TextField(controller:patient,decoration:const InputDecoration(labelText:'Patient account UID',hintText:'Ask the project administrator for the patient UID',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12),SizedBox(height:54,child:FilledButton.icon(onPressed:()=>_check(),icon:const Icon(Icons.sync),label:const Text('Check patient status'))),const SizedBox(height:12),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(status,style:const TextStyle(fontWeight:FontWeight.w700))),const SizedBox(height:20),const Text('Latest patient update',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:8),Text('Latest alert: $latestAlert'),const SizedBox(height:8),Text(patientLat==null?'No location received yet':'Last location: ${patientLat!.toStringAsFixed(5)}, ${patientLon!.toStringAsFixed(5)}'),const SizedBox(height:16),const Text('The caregiver dashboard reads the configured backend response. It never invents patient location or alert data.',style:TextStyle(color:Color(0xFF64748B))),const SizedBox(height:16),OutlinedButton.icon(onPressed:_openLastLocation,icon:const Icon(Icons.map_outlined),label:const Text('Open last known location in Maps')),const SizedBox(height:12),const Text('For privacy, only monitor a patient who has consented and has been paired through your backend.',style:TextStyle(color:Color(0xFF64748B))) ]));
 }
 
 class SettingsPage extends StatefulWidget{const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
