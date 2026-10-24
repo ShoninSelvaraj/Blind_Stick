@@ -1339,7 +1339,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;int _selectedTab=0;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;
  @override void initState(){super.initState();vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
  Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
@@ -1384,8 +1384,109 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  }
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
  void _changed(){if(!mounted)return;setState((){});final shouldRunVision=stick.connected&&stick.assistance;if(shouldRunVision!=_lastVisionShouldRun){_lastVisionShouldRun=shouldRunVision;if(shouldRunVision){vision.start();}else{vision.stop();}}if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
- Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.uid,p);}
- Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
+ Future<bool?> _requestSharingMode() async {
+  final choice=await showDialog<String>(
+   context:context,
+   builder:(dialogContext)=>AlertDialog(
+    title:const Text('Share location with your caregiver?'),
+    content:const Text('When sharing is enabled, this app sends your current phone location and accuracy to the caregiver you paired with. Choose app-open-only sharing or background sharing with a persistent Android notification. You can turn sharing off here at any time.'),
+    actions:[
+     TextButton(onPressed:()=>Navigator.pop(dialogContext,'cancel'),child:const Text('Cancel')),
+     OutlinedButton(onPressed:()=>Navigator.pop(dialogContext,'foreground'),child:const Text('While app is open')),
+     FilledButton(onPressed:()=>Navigator.pop(dialogContext,'background'),child:const Text('Allow background sharing')),
+    ],
+   ),
+  );
+  if(choice==null||choice=='cancel')return null;
+  if(choice=='foreground')return false;
+  if(defaultTargetPlatform!=TargetPlatform.android)return false;
+  if(await Permission.locationAlways.isGranted)return true;
+  final result=await Permission.locationAlways.request();
+  if(result.isGranted)return true;
+  if(mounted){
+   await stick.announce('Background location permission was not enabled. Location sharing can still work while this app stays open.');
+   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Background access was not granted. Sharing will run only while the app is open.')));
+  }
+  return false;
+ }
+
+ Future<void> _startLocationSharingStream({required bool background}) async {
+  await locationSharingSubscription?.cancel();
+  LocationSettings settings=const LocationSettings(
+   accuracy:LocationAccuracy.high,
+   distanceFilter:10,
+  );
+  if(background&&defaultTargetPlatform==TargetPlatform.android){
+   settings=AndroidSettings(
+    accuracy:LocationAccuracy.high,
+    distanceFilter:10,
+    intervalDuration:const Duration(seconds:30),
+    foregroundNotificationConfig:const ForegroundNotificationConfig(
+     notificationTitle:'BlindStick Companion location sharing',
+     notificationText:'Your location is being shared with a caregiver you linked',
+     notificationChannelName:'Location sharing',
+     enableWakeLock:false,
+     setOngoing:true,
+    ),
+   );
+  }
+  locationSharingSubscription=Geolocator.getPositionStream(locationSettings:settings).listen((p){
+   if(!mounted||!sharing)return;
+   setState((){
+    position=p;
+    locationText='Location ready · accuracy ${p.accuracy.round()} m';
+   });
+   unawaited(api.location(widget.user.uid,p));
+  },onError:(_){
+   if(!mounted)return;
+   setState(()=>locationText='Location sharing paused — GPS updates unavailable');
+   stick.announce('Location sharing has lost live GPS updates. Your caregiver may see an older location.');
+  });
+ }
+
+ Future<void> _refreshLocation()async{
+  final p=await getPosition();
+  if(!mounted)return;
+  setState(() {
+   position=p;
+   locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m';
+  });
+  if(sharing&&p!=null)await api.location(widget.user.uid,p);
+ }
+
+ Future<void> _toggleSharing(bool v)async{
+  if(!v){
+   setState(()=>sharing=false);
+   await locationSharingSubscription?.cancel();
+   locationSharingSubscription=null;
+   setState((){
+    _backgroundSharing=false;
+    locationText='Location sharing paused';
+   });
+   await stick.announce('Location sharing is off.');
+   return;
+  }
+  final current=await getPosition();
+  if(!mounted)return;
+  if(current==null){
+   setState(()=>locationText='Location unavailable — enable GPS and allow location access first');
+   await stick.announce('Location sharing could not start because phone location is unavailable. Enable location services and allow location permission.');
+   return;
+  }
+  final background=await _requestSharingMode();
+  if(background==null)return;
+  setState((){
+   sharing=true;
+   _backgroundSharing=background;
+   position=current;
+   locationText='Location ready · accuracy ${current.accuracy.round()} m';
+  });
+  await api.location(widget.user.uid,current);
+  await _startLocationSharingStream(background:background);
+  await stick.announce(background
+   ? 'Location sharing is on, including while the screen is off. A persistent Android notification will remain visible. Turn sharing off here to stop it.'
+   : 'Location sharing is on while this app is open. Keep BlindStick Companion open for continuing updates.');
+ }
  Future<void> _sos()async{
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(
    title:const Text('Send emergency alert?'),
@@ -1415,7 +1516,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    }
   }
  }
- @override void dispose(){vision.removeListener(_visionChanged);vision.stop();destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
+ @override void dispose(){vision.removeListener(_visionChanged);vision.stop();destination.dispose();if(locationSharingSubscription!=null)unawaited(locationSharingSubscription!.cancel());pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override
  Widget build(BuildContext c) {
   final t=stick.telemetry;
@@ -1717,7 +1818,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    SwitchListTile(
     contentPadding:EdgeInsets.zero,
     title:const Text('Share my location',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
-    subtitle:Text(sharing?'Sharing while the app stays open.':'Off until you turn it on.'),
+    subtitle:Text(!sharing?'Off until you turn it on.':_backgroundSharing?'Background sharing is active; an Android notification stays visible.':'Sharing while this app is open. Keep it open for updates.'),
     value:sharing,
     onChanged:_toggleSharing,
    ),
@@ -1732,7 +1833,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     ),
    ),
    const SizedBox(height:10),
-   const Text('Location sharing stops when the app is closed or the phone cannot obtain a location. It is not continuous background tracking.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
+   const Text('Background mode uses Android foreground location with a persistent notification while the service is running. Force-stop, reboot, revoked permissions, GPS loss or battery restrictions can stop updates. In app-open-only mode, keep this app open. Turn sharing off to stop location uploads.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
   ],
  );
 
