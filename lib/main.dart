@@ -85,11 +85,11 @@ class _LoginPageState extends State<LoginPage> {
     if(mounted)setState(()=>info=selectedRole==Role.patient?'Account ready. Connect your stick from the patient screen.':'Account ready. To view a patient, you still need to be paired with them.');
    }else{await FirebaseAuth.instance.signInWithEmailAndPassword(email:email.text.trim(),password:password.text);}
   }on FirebaseAuthException catch(ex){
-   if(mounted)setState(()=>error=switch(ex.code){
+   if(mounted) { setState(()=>error=switch(ex.code){
     'invalid-email'=>'That email address is not valid.','user-not-found'=>'No account exists for this email. Choose Create account first.',
     'wrong-password'||'invalid-credential'=>'Email or password is incorrect.','email-already-in-use'=>'An account already exists for this email. Sign in instead.',
     'weak-password'=>'Choose a stronger password.','network-request-failed'=>'No network connection. Check internet and try again.',
-    'too-many-requests'=>'Too many attempts. Wait a little before trying again.',_=>'Could not authenticate (${ex.code}). Check Firebase Authentication settings.'});
+    'too-many-requests'=>'Too many attempts. Wait a little before trying again.',_=>'Could not authenticate (${ex.code}). Check Firebase Authentication settings.'}); }
   }catch(ex){if(mounted)setState(()=>error='Could not finish sign-in. Check Firebase configuration and Firestore rules.');}
   finally{if(mounted)setState(()=>busy=false);}
  }
@@ -318,10 +318,10 @@ class BleStickService extends ChangeNotifier {
   final t=telemetry;
   // Keep warnings priority-ordered: close obstacle must never be overwritten by a less urgent cue.
   String warning='';
-  if(t.distanceCm!=null&&t.distanceCm!<35)warning='Stop. Obstacle very close.';
-  else if(t.trafficWalk==false&&t.object.toLowerCase().contains('traffic'))warning='Stop. Do not cross yet. Check the crossing yourself.';
-  else if(t.distanceCm!=null&&t.distanceCm!<90)warning='Caution. Obstacle ahead.';
-  else if(t.crowd.toLowerCase()=='high')warning='Crowded area ahead. Slow down.';
+  if(t.distanceCm!=null&&t.distanceCm!<35){warning='Stop. Obstacle very close.';}
+  else if(t.trafficWalk==false&&t.object.toLowerCase().contains('traffic')){warning='Stop. Do not cross yet. Check the crossing yourself.';}
+  else if(t.distanceCm!=null&&t.distanceCm!<90){warning='Caution. Obstacle ahead.';}
+  else if(t.crowd.toLowerCase()=='high'){warning='Crowded area ahead. Slow down.';}
   if(warning.isNotEmpty&&warning!=_lastWarning){
    _lastWarning=warning;_event(warning);HapticFeedback.heavyImpact();_speak(warning);
   }
@@ -380,7 +380,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    padding:const EdgeInsets.all(18),
    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0xFFDCE5E9))),
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Row(children:[const Icon(Icons.people_alt_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
+    const Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
     const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
@@ -403,7 +403,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
  Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This will save an SOS alert to your linked patient record in Firestore. A caregiver can see it when they refresh or while viewing alerts; push notifications are not configured yet.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The alert was saved to Firestore. This does not confirm that a caregiver has seen it. Use your usual emergency contact method too if you are in danger.':'The alert could not be saved. Check internet and Firestore permissions, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
  @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
- @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('Saathi · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
+ @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('Saathi · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
   Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
   Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'Waiting for stick':t.detectionStatus=='model_not_installed'?'AI model not installed':t.object!='Waiting for device data'?t.object:t.cameraFrameAvailable==true?'Camera active; no detection model':'Camera unavailable',teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
   if(stick.lastError!=null)Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),child:Text(stick.lastError!,style:const TextStyle(color:red))),
@@ -467,7 +467,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
    builder:(context,claimSnapshot){
     if(claimSnapshot.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
     final claim=claimSnapshot.data?.data();
-    if(claim==null)return ListView(padding:const EdgeInsets.all(20),children:[
+    if(claim==null){return ListView(padding:const EdgeInsets.all(20),children:[
      Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Icon(Icons.favorite_outline,color:Color(0xFF9FF0D0),size:36),SizedBox(height:14),
       Text('Stay connected, with permission.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
@@ -479,7 +479,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
      if(pairingInfo!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingInfo!,style:const TextStyle(color:teal))),
      const SizedBox(height:8),SizedBox(height:56,child:FilledButton.icon(onPressed:pairing?null:_pair,icon:pairing?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.link),label:Text(pairing?'Connecting…':'Connect securely',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)))),
      const SizedBox(height:16),const Text('Codes expire after 10 minutes and work once. An account can connect to one patient at a time in this version.',style:TextStyle(color:Color(0xFF64748B))),
-    ]);
+    ]);}
     final patientUid=(claim['patientUid']??'').toString();
     return StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(
      stream:FirebaseFirestore.instance.collection('patients').doc(patientUid).snapshots(),
@@ -495,7 +495,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
        Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         const Icon(Icons.health_and_safety_outlined,color:Color(0xFF9FF0D0),size:36),const SizedBox(height:14),
         Text('Connected to $name',style:const TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
-        const SizedBox(height:8),Text('You are linked with permission. Updates appear here when they are shared.',style:const TextStyle(color:Colors.white70,fontSize:15))
+        const SizedBox(height:8),const Text('You are linked with permission. Updates appear here when they are shared.',style:TextStyle(color:Colors.white70,fontSize:15))
        ])),
        const SizedBox(height:20),const Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),const Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
@@ -511,7 +511,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
          return Column(children:alerts.data!.docs.map((doc){
           final d=doc.data();final type=(d['type']??'Update').toString();final message=(d['message']??'').toString();
           final isSos=type=='sos';
-          return ListTile(contentPadding:EdgeInsets.zero,leading:Icon(isSos?Icons.sos:Icons.notifications_outlined,color:isSos?red:teal),title:Text(isSos?'Emergency alert':'$type'),subtitle:Text(message),isThreeLine:message.length>48);
+          return ListTile(contentPadding:EdgeInsets.zero,leading:Icon(isSos?Icons.sos:Icons.notifications_outlined,color:isSos?red:teal),title:Text(isSos?'Emergency alert':type),subtitle:Text(message),isThreeLine:message.length>48);
          }).toList());
         }),
        const SizedBox(height:12),const Text('If an emergency alert appears, contact the person or local emergency services as appropriate. A screen update does not confirm that help has been dispatched.',style:TextStyle(color:Color(0xFF64748B))),
