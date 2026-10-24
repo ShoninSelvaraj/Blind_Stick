@@ -17,7 +17,8 @@ The app does not require Google Maps SDK, Google Maps API keys, paid map APIs, o
 | Ultrasonic distance and stick vibration | ESP32 firmware has an HC-SR04-style distance input and a transistor/MOSFET motor-driver output; live range is sent over BLE | Wiring must match the exact board, 5V ECHO needs level shifting, and the physical sensor/motor are not yet bench-tested |
 | Emergency alert | Save SOS in Firestore and optionally open the phone's SMS composer | SMS is **not sent automatically**; the user must select a recipient and tap send. Carrier SMS costs may apply |
 | Background push notification | Not included in zero-billing mode | Sending FCM push messages requires a trusted sender/server. No automatic background push is claimed |
-| Object detection / people-count crowd estimate / traffic-lamp colour estimate | Quantized SSD MobileNet V1 COCO model runs locally on Android from JPEG frames served by the ESP32-CAM; one-time download required | Common COCO classes only; crowd is a single-frame person count, signal colour is heuristic and never identifies a pedestrian WALK signal; false negatives and latency are possible |
+| Object detection / crowd estimate | Quantized SSD MobileNet V1 COCO model runs locally on Android from ESP32-CAM JPEG frames | Common COCO classes only; crowd is a single-frame person count; false negatives and latency are possible |
+| Pedestrian / vehicle signal detection | MIT-licensed YOLO26n seven-class TFLite model classifies human-red, human-green, vehicle-red, and vehicle-green separately, on-device | Experimental classifier; no safe-crossing guarantee, no crossing command, and no field validation for Indian traffic signals |
 
 **Zero budget means no required paid service in this design; it does not mean unlimited capacity or guaranteed availability.** Do not use public community servers for high-volume or mission-critical navigation. If the project grows, self-host OpenStreetMap-derived services on hardware you already control, or use a provider only after checking its terms and price.
 
@@ -95,16 +96,18 @@ BLE service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
 
 Firmware path: `firmware/esp32_cam/esp32_cam_ble_bridge.ino`.
 
-The firmware now advertises the BLE service, creates a password-protected `BlindStick-Camera` Wi-Fi access point, serves `/status` and JPEG frames from `/capture`, reads an optional HC-SR04-style ultrasonic sensor, and provides a driver output for a vibration motor. Phone-side vision runs the quantized SSD MobileNet V1 COCO model locally via TensorFlow Lite after the user downloads it once. Detections, person count/crowd estimate, and a heuristic traffic-lamp colour estimate are **prototype results**, not certified safety outputs. Battery monitoring is still absent. The physical board, sensor, motor driver and app have not been validated together.
+The firmware advertises BLE, creates a password-protected `BlindStick-Camera` Wi-Fi AP, serves `/status` and JPEG frames from `/capture`, reads an optional HC-SR04-style ultrasonic sensor, and provides a driver output for a vibration motor. The Android app downloads and runs two on-device models: quantized SSD MobileNet V1 COCO for common objects/person count and an MIT-licensed YOLO26n seven-class model that distinguishes `human_red`/`human_green` pedestrian indications from `vehicle_red`/`vehicle_green` signals. The app uses temporal confirmation and a red-baseline rule before describing a green pedestrian-signal estimate; it still never instructs a user to cross. All outputs remain **experimental predictions**, not certified safety outputs. Battery monitoring is absent, and the physical board, sensor, motor driver and app have not been validated together.
 
 ### Camera/AI setup
 
-1. With the phone on normal internet, open **Home → Device readiness** and tap **Prepare on-device AI model**. The app downloads the official quantized COCO SSD MobileNet model once into private app storage; no per-frame cloud inference is used.
+1. With the phone on normal internet, open **Home → Device readiness** and tap **Prepare on-device AI model**. The app downloads two models once into private app storage: quantized COCO SSD MobileNet for general objects and a 320×320 YOLO26n seven-class pedestrian/vehicle signal detector. The app verifies the downloaded pedestrian-model SHA-256 against `THIRD_PARTY_NOTICES.md`. No per-frame cloud inference is used.
 2. Connect the phone to the Wi-Fi network **BlindStick-Camera**. The firmware's development password is `StickAssist#26`; change it before sharing the device.
 3. Return to BlindStick Companion, pair/connect over Bluetooth, and start assistance. The app fetches JPEG frames from `http://192.168.4.1/capture` and runs inference on the phone. Some phones may say the camera AP has no internet; local camera traffic can still work, but public map search/routing may lose internet access.
 4. The default firmware wiring assumes HC-SR04 TRIG on GPIO13, ECHO on GPIO14 through a suitable 5V-to-3.3V divider/level shifter, and a motor driver on GPIO2. Do not connect a motor directly to the GPIO. See `firmware/esp32_cam/README.md` before wiring; GPIO2 is a boot-strapping pin and the microSD pins are repurposed.
 
-**Important:** MobileNet SSD can recognise a traffic light-shaped object, not the pedestrian crossing signal. The lamp-colour estimate can be wrong due to distance, glare, weather, LED flicker or camera angle. It must never tell the user to cross.
+**Important:** The dedicated signal model can predict `human_red` or `human_green` separately from vehicle lights, but its predictions can still be wrong due to camera angle, occlusion, glare, distance, weather, flicker, or domain mismatch. The app requires repeated frames and a red baseline before it reports a possible green state, and resets that baseline if the signal disappears. It still never tells the user to cross. Confirm with an audible/tactile crossing signal and established mobility methods. See `THIRD_PARTY_NOTICES.md` for model attribution and checksum.
+
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the MIT notice, model source, expected input/output, pinned SHA-256 and limitations.
 
 ## Run the app
 
