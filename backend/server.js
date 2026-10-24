@@ -40,7 +40,7 @@ function recordEvent(patientId, type, detail, extra = {}) {
   pushBounded(eventStore.get(patientId), event);
   return event;
 }
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'dishaflow-api', time: now(), persistence: 'in-memory; replace with database adapter' }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'blindstick_companion-api', time: now(), persistence: 'in-memory; replace with database adapter' }));
 app.use('/api', requireAuth);
 
 app.post('/api/locations', (req, res) => {
@@ -97,4 +97,4 @@ app.get('/api/patients/:patientId/events', (req, res) => {
 });
 
 app.use((err, _req, res, _next) => { console.error('Unhandled API error:', err?.message || err); res.status(500).json({ error: 'internal_error' }); });
-app.listen(PORT, () => console.log(`DishaFlow API listening on port ${PORT}; persistence is in-memory until a database adapter is connected.`));
+app.listen(PORT, () => console.log(`BlindStick Companion API listening on port ${PORT}; persistence is in-memory until a database adapter is connected.`));
