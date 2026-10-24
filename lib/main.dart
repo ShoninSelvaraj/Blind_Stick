@@ -545,7 +545,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         'limit': '1',
       });
       final response = await http.get(uri, headers: {
-        'User-Agent': 'BlindStick Companion/1.0 (com.vimal.blindstick)',
+        'User-Agent': 'BlindStick Companion/1.0 (+https://github.com/ShoninSelvaraj/Blind_Stick)',
       }).timeout(const Duration(seconds: 15));
       if (response.statusCode != 200) {
         throw StateError('Place search is temporarily unavailable. Try again later.');
@@ -617,7 +617,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       },
     );
     final response = await http.get(uri, headers: {
-      'User-Agent': 'BlindStick Companion/1.0 (com.vimal.blindstick)',
+      'User-Agent': 'BlindStick Companion/1.0 (+https://github.com/ShoninSelvaraj/Blind_Stick)',
     }).timeout(const Duration(seconds: 20));
     if (response.statusCode != 200) {
       throw StateError('Walking directions are temporarily unavailable. Check your connection and try again.');
@@ -873,7 +873,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                           child: Text('${index + 1}'),
                         ),
                         title: Text(step.instruction),
-                        subtitle: Text('${step.distanceMeters.round()} metres to this maneuver'),
+                        subtitle: Text('Segment distance: ${step.distanceMeters.round()} metres'),
                         onTap: () => stick.announce(step.instruction),
                       ),
                     );
@@ -882,6 +882,22 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                 const Text(
                   'Accessibility and safety: spoken directions depend on GPS, network access, and this public routing service. The route is a guide, not a guarantee that a footpath or crossing is safe. Keep using your usual mobility method, confirm crossings with your established technique, and stop if the spoken location seems wrong.',
                   style: TextStyle(color: Color(0xFF59697B)),
+                ),
+                TextButton.icon(
+                  onPressed: () => launchUrl(
+                    Uri.parse('https://operations.osmfoundation.org/policies/tiles/'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('OpenStreetMap tile usage policy'),
+                ),
+                TextButton.icon(
+                  onPressed: () => launchUrl(
+                    Uri.parse('https://operations.osmfoundation.org/policies/nominatim/'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Destination-search usage policy'),
                 ),
               ],
             ),
