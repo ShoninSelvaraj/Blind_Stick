@@ -13,7 +13,15 @@ service cloud.firestore {
   match /patients/{patientUid} {
    allow create: if signedIn() && request.auth.uid == patientUid && get(/databases/$(database)/documents/users/$(patientUid)).data.role == 'patient' && request.resource.data.ownerUid == request.auth.uid && request.resource.data.caregiverUids is list && request.resource.data.caregiverUids.size() <= 2;
    allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
-   allow update: if patientOwner(patientUid) && request.resource.data.ownerUid == resource.data.ownerUid && request.resource.data.caregiverUids == resource.data.caregiverUids && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation','lastSeenAt','deviceStatus','updatedAt']);
+   allow update: if patientOwner(patientUid) &&
+    request.resource.data.ownerUid == resource.data.ownerUid &&
+    (
+      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caregiverUids']) &&
+       request.resource.data.caregiverUids is list &&
+       request.resource.data.caregiverUids.size() <= 2) ||
+      (request.resource.data.caregiverUids == resource.data.caregiverUids &&
+       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation','lastSeenAt','deviceStatus','updatedAt']))
+    );
    allow delete: if false;
    match /locations/{locationId} {
     allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
