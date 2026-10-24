@@ -709,16 +709,10 @@ Future<void> openNavigation(
   Future<void> Function()? onEmergency,
 }) async {
   final place = destination.trim();
-  if (place.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please enter a destination first.')),
-    );
-    return;
-  }
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => InAppNavigationPage(
-        initialQuery: place,
+        initialQuery: place.isEmpty ? null : place,
         onEmergency: onEmergency,
       ),
     ),
@@ -867,43 +861,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     });
   }
 
-  Future<bool?> _requestBackgroundGuidance() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return false;
-    if (await Permission.locationAlways.isGranted) return true;
-    if (!mounted) return null;
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Keep spoken navigation active?'),
-        content: const Text(
-          'To keep GPS turn guidance working when the screen is off or you switch apps, Android needs background location permission. Location updates are used only while this navigation screen is active. You can also choose foreground-only guidance and keep this app open with the screen on.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'cancel'),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 'foreground'),
-            child: const Text('Keep app open'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, 'background'),
-            child: const Text('Allow background guidance'),
-          ),
-        ],
-      ),
-    );
-    if (choice == null || choice == 'cancel') return null;
-    if (choice == 'foreground') return false;
-    final result = await Permission.locationAlways.request();
-    if (result.isGranted) return true;
-    if (mounted) {
-      setState(() => _error = 'Background location was not enabled. Spoken directions can run while this app stays open, but screen-off navigation is not enabled. Change location permission in Android app settings if needed.');
-      await stick.announce('Background location was not enabled. Keep BlindStick Companion open and the screen on for live spoken walking directions.');
-    }
-    return false;
-  }
 
     void _onPosition(Position position) {
     if (!mounted) return;
@@ -1081,10 +1038,16 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'Searching for destination';
+      _status = 'Finding a walking route';
       _guidance = false;
       _routePoints = [];
       _steps = [];
+      _destination = null;
+      _destinationLabel = null;
+      _distanceMeters = null;
+      _durationSeconds = null;
+      _offRoute = false;
+      _offRouteSamples = 0;
     });
     try {
       // User-triggered only (never type-ahead); cache repeat searches in this app session.
@@ -1127,6 +1090,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _destination = LatLng(latitude, longitude);
       _destinationLabel = (result['display_name'] ?? query).toString();
       await _loadRoute();
+      if (mounted && _steps.isNotEmpty) await _startGuidance();
     } catch (exception) {
       if (mounted) {
         setState(() {
@@ -1289,8 +1253,10 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       await stick.announce('Cannot start spoken navigation. A current GPS fix and mapped route are required.');
       return;
     }
-    final backgroundAllowed = await _requestBackgroundGuidance();
-    if (backgroundAllowed == null) return;
+    // Start immediately with foreground location. Screen-off tracking remains
+    // opt-in via Android location settings instead of blocking each route with a dialog.
+    final backgroundAllowed = defaultTargetPlatform == TargetPlatform.android &&
+        await Permission.locationAlways.isGranted;
     await _startPositionStream(guidanceMode: backgroundAllowed);
     setState(() {
       _guidance = true;
@@ -1302,11 +1268,11 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _status = backgroundAllowed ? 'Walking guidance active' : 'Walking guidance active — keep app open';
       _error = backgroundAllowed
           ? null
-          : 'For screen-off guidance, allow background location. Until then, keep this app open and the screen on.';
+          : 'Spoken directions are active. Keep this screen open and your phone unlocked; screen-off guidance can be enabled in Android location settings.';
     });
     await stick.announce(
       'Spoken walking guidance started. ${_routeSummary()} '
-      '${backgroundAllowed ? 'Background location is enabled for this route.' : 'Keep the app open and screen on for continuous live GPS updates.'} '
+      '${backgroundAllowed ? 'Background location is enabled for this route.' : 'Keep the app open and screen on for live GPS updates.'} '
       'GPS and route information can be inaccurate. Stop if the instructions do not match your surroundings.',
     );
     if (_nextStepIndex < _steps.length) {
@@ -1454,8 +1420,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                   textInputAction: TextInputAction.search,
                   onSubmitted: (_) => _searchAndRoute(),
                   decoration: const InputDecoration(
-                    labelText: 'Destination',
-                    hintText: 'Type a place or address; tap Search',
+                    labelText: 'Where do you want to go?',
+                    hintText: 'Enter a place, street, or address',
                     prefixIcon: Icon(Icons.place_outlined),
                   ),
                 ),
@@ -1465,7 +1431,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                   child: FilledButton.icon(
                     onPressed: _busy ? null : _searchAndRoute,
                     icon: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
-                    label: Text(_busy ? 'Finding route…' : 'Search and show route', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                    label: Text(_busy ? 'Finding route…' : 'Find route and start directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                   ),
                 ),
                 if (_destinationLabel != null) ...[
@@ -1508,7 +1474,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                     label: Text(_offRoute ? 'Recalculate route before continuing' : 'Recalculate route from current location'),
                   ),
                 const SizedBox(height: 10),
-                Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
+                Text('Upcoming directions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
                 if (_steps.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
@@ -1528,7 +1494,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                         ),
                         title: Text(step.instruction),
                         subtitle: Text('Segment distance: ${step.distanceMeters.round()} metres'),
-                        onTap: () => stick.announce(step.instruction),
                       ),
                     );
                   }),
@@ -1565,7 +1530,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;bool _locationWriteWarningShown=false;
+class _PatientPageState extends State<PatientPage>{final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;bool _locationWriteWarningShown=false;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
  void _contrastChanged(){if(mounted)setState((){});}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
@@ -1792,7 +1757,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    }
   }
  }
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);vision.removeListener(_visionChanged);vision.stop();destination.dispose();if(locationSharingSubscription!=null)unawaited(locationSharingSubscription!.cancel());pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);vision.removeListener(_visionChanged);vision.stop();if(locationSharingSubscription!=null)unawaited(locationSharingSubscription!.cancel());pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override
  Widget build(BuildContext c) {
   final t=stick.telemetry;
@@ -2034,24 +1999,18 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     ]),
    ),
    const SizedBox(height:20),
-   TextField(
-    controller:destination,
-    textInputAction:TextInputAction.go,
-    onSubmitted:(v)=>openNavigation(context,v,onEmergency:_sos),
-    decoration:const InputDecoration(
-     labelText:'Destination',
-     hintText:'Place, street, or address',
-     prefixIcon:Icon(Icons.place_outlined),
-    ),
-   ),
-   const SizedBox(height:12),
    SizedBox(
     height:66,
     child:FilledButton.icon(
-     onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
-     icon:const Icon(Icons.map_outlined,size:28),
-     label:const Text('Plan a walking route',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+     onPressed:()=>openNavigation(context,'',onEmergency:_sos),
+     icon:const Icon(Icons.assistant_navigation,size:28),
+     label:const Text('Choose destination',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
     ),
+   ),
+   const SizedBox(height:8),
+   const Text(
+    'Enter your destination once on the next screen. The app will find a walking route and begin speaking directions automatically.',
+    style:TextStyle(fontSize:15,color:Color(0xFF59697B)),
    ),
    const SizedBox(height:12),
    Semantics(liveRegion:true,child:Text(locationText,style:const TextStyle(fontSize:16,color:Color(0xFF59697B)))),
