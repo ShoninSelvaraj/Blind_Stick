@@ -2243,6 +2243,15 @@ class _CaregiverPageState extends State<CaregiverPage>{
    await PairingService.redeemCode(code,widget.user.uid);
    if(mounted)setState(()=>pairingInfo='Connected. You can now see updates that the person chooses to share.');
    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Pairing complete.')));
+  } on FirebaseException catch(ex) {
+   final message=switch(ex.code){
+    'permission-denied'=>'Firebase blocked the connection. The app owner needs to deploy the latest Firestore rules to project blindstick001, then create a fresh pairing code.',
+    'unavailable'||'deadline-exceeded'=>'Could not reach Firebase. Check internet access and try again with a new code if this one expires.',
+    'unauthenticated'=>'Your sign-in has expired. Sign in again and ask the person to create a new code.',
+    'failed-precondition'=>'The connection could not be completed. Check that both accounts are set up with the correct roles and retry with a fresh code.',
+    _=>'Could not connect right now. Check internet access and try again with a new pairing code.',
+   };
+   if(mounted)setState(()=>pairingError=message);
   }catch(e){
    if(mounted)setState(()=>pairingError=e.toString().replaceFirst('Bad state: ',''));
   }finally{if(mounted)setState(()=>pairing=false);}
