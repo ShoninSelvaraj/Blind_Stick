@@ -667,14 +667,33 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   }
 
   double _distanceFromRoute(Position position) {
+    if (_routePoints.isEmpty) return double.infinity;
+    const earthRadiusMeters = 6371000.0;
+    final latitudeRadians = position.latitude * math.pi / 180.0;
+    final longitudeScale = earthRadiusMeters * math.cos(latitudeRadians) * math.pi / 180.0;
+    final latitudeScale = earthRadiusMeters * math.pi / 180.0;
+
+    double x(LatLng point) => (point.longitude - position.longitude) * longitudeScale;
+    double y(LatLng point) => (point.latitude - position.latitude) * latitudeScale;
+    if (_routePoints.length == 1) {
+      return math.sqrt(math.pow(x(_routePoints.first), 2) + math.pow(y(_routePoints.first), 2));
+    }
+
     var nearest = double.infinity;
-    for (final point in _routePoints) {
-      final distance = Geolocator.distanceBetween(
-        position.latitude,
-        position.longitude,
-        point.latitude,
-        point.longitude,
-      );
+    for (var i = 0; i < _routePoints.length - 1; i++) {
+      final first = _routePoints[i];
+      final second = _routePoints[i + 1];
+      final ax = x(first);
+      final ay = y(first);
+      final dx = x(second) - ax;
+      final dy = y(second) - ay;
+      final lengthSquared = dx * dx + dy * dy;
+      final projection = lengthSquared == 0
+          ? 0.0
+          : (-(ax * dx + ay * dy) / lengthSquared).clamp(0.0, 1.0);
+      final offsetX = ax + projection * dx;
+      final offsetY = ay + projection * dy;
+      final distance = math.sqrt(offsetX * offsetX + offsetY * offsetY);
       if (distance < nearest) nearest = distance;
     }
     return nearest;
@@ -1031,7 +1050,17 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           child: Semantics(label: 'Destination', child: const Icon(Icons.location_pin, color: red, size: 40)),
         ),
     ];
-    return Scaffold(
+    return PopScope<Object?>(
+      canPop: !_guidance,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _guidance) {
+          stick.announce('Spoken walking guidance is still active. Stop guidance before leaving this navigation screen.');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Stop spoken directions before leaving navigation.')),
+          );
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Walking navigation'),
         actions: [
@@ -1179,6 +1208,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -1380,6 +1410,36 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     t.distanceCm==null?'No distance reading received': '${t.distanceCm!.round()} centimetres',
     t.distanceCm==null?Icons.sensors_off:Icons.radar,
     t.distanceCm==null?Colors.orange:teal,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Object detection',
+    t.detectionStatus=='model_not_installed'
+        ? 'Not available yet — no trained detection model is installed.'
+        : 'Awaiting verified detections from the connected device.',
+    Icons.center_focus_strong,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Traffic signal guidance',
+    'Not implemented in the current camera firmware. Do not rely on this app to decide when to cross.',
+    Icons.traffic,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Crowd density warning',
+    'Not implemented in the current camera firmware.',
+    Icons.groups_outlined,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Stick vibration motor',
+    'Physical motor is not controlled by current firmware. The app only provides phone haptics for supported warnings and turn prompts.',
+    Icons.vibration,
+    Colors.orange,
    ),
    const SizedBox(height:8),
    _readinessItem(
