@@ -1,5 +1,5 @@
 {
-  "name": "Saathi Blind Stick BLE Protocol",
+  "name": "DishaFlow Blind Stick BLE Protocol",
   "version": 1,
   "service_uuid": "7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001",
   "characteristics": {
