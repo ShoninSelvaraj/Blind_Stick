@@ -3,6 +3,9 @@ package com.vimal.blindstick
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -106,6 +109,23 @@ class MainActivity : FlutterActivity() {
                             result.error("WIFI_SETTINGS", error.message, null)
                         }
                     }
+                    "cameraHttpGet" -> {
+                        val url = call.argument<String>("url")
+                        if (url.isNullOrBlank()) {
+                            result.error("CAMERA_URL", "A camera URL is required", null)
+                        } else if (!url.startsWith("http://192.168.4.1/")) {
+                            result.error("CAMERA_URL", "Only the local ESP32-CAM endpoint can use Wi-Fi-bound requests", null)
+                        } else {
+                            worker.execute {
+                                try {
+                                    val response = getCameraResponseOnWifi(url)
+                                    runOnUiThread { result.success(response) }
+                                } catch (error: Exception) {
+                                    runOnUiThread { result.error("CAMERA_NETWORK", error.message ?: "Camera request failed", null) }
+                                }
+                            }
+                        }
+                    }
                     "visionModelReady" -> result.success(
                         modelFile().let { it.exists() && it.length() > 100_000 } &&
                         pedestrianSignalModelFile().let {
@@ -150,6 +170,46 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun getCameraResponseOnWifi(url: String): Map<String, Any> {
+        val manager = getSystemService(ConnectivityManager::class.java)
+            ?: throw IllegalStateException("Android network manager is unavailable.")
+        val wifi = manager.allNetworks.firstOrNull { network: Network ->
+            manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        } ?: throw IllegalStateException(
+            "No active Wi-Fi network is available. Connect to BlindStick-Camera Wi-Fi and retry."
+        )
+
+        // Bind only this HTTP connection to the Wi-Fi network. Do not bind the
+        // whole process: Firebase, map search and routing must keep using Android's
+        // normal internet route (usually mobile data when the camera AP has no internet).
+        val connection = (wifi.openConnection(URL(url)) as HttpURLConnection).apply {
+            connectTimeout = 4_000
+            readTimeout = 5_000
+            requestMethod = "GET"
+            setRequestProperty("Cache-Control", "no-cache")
+            setRequestProperty("Connection", "close")
+        }
+        try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+            if (bytes.size > 2 * 1024 * 1024) {
+                throw IllegalStateException("Camera response exceeded the 2 MB safety limit.")
+            }
+            val contentType = connection.contentType.orEmpty()
+            val response = mutableMapOf<String, Any>(
+                "statusCode" to status,
+                "bodyBytes" to bytes
+            )
+            if (contentType.contains("json", ignoreCase = true) || status >= 400) {
+                response["body"] = bytes.toString(Charsets.UTF_8)
+            }
+            return response
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun modelFile(): File {
