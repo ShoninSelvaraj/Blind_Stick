@@ -5,9 +5,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
@@ -21,6 +23,7 @@ Future<void> main() async {
  final preferences = await SharedPreferences.getInstance();
  voiceGuidanceEnabled = preferences.getBool('voice') ?? true;
  appTextScale.value = preferences.getDouble('text_scale') ?? 1.0;
+ appHighContrast.value = preferences.getBool('high_contrast') ?? false;
  runApp(const BlindStickApp());
 }
 
@@ -33,20 +36,36 @@ const telemetryUuid = '7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001';
 const commandUuid = '7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001';
 bool voiceGuidanceEnabled = true;
 final ValueNotifier<double> appTextScale = ValueNotifier<double>(1.0);
+final ValueNotifier<bool> appHighContrast = ValueNotifier<bool>(false);
 
 class BlindStickApp extends StatelessWidget {
   const BlindStickApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'BlindStick Companion', debugShowCheckedModeBanner: false,
-    theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: teal), scaffoldBackgroundColor: const Color(0xFFF7FAFC), fontFamily: 'Roboto',
-      inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), contentPadding: const EdgeInsets.all(16))),
-    home: const AuthGate(),
-    builder: (context, child) => ValueListenableBuilder<double>(
-      valueListenable: appTextScale,
-      builder: (context, scale, _) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
-        child: child ?? const SizedBox.shrink(),
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: appHighContrast,
+    builder: (context, highContrast, _) => MaterialApp(
+      title: 'BlindStick Companion', debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: highContrast
+            ? const ColorScheme.light(primary: Colors.black, onPrimary: Colors.white, secondary: Colors.black, onSecondary: Colors.white, surface: Colors.white, onSurface: Colors.black)
+            : ColorScheme.fromSeed(seedColor: teal),
+        scaffoldBackgroundColor: highContrast ? Colors.white : const Color(0xFFF7FAFC),
+        fontFamily: 'Roboto',
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true, fillColor: Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))),
+          contentPadding: const EdgeInsets.all(16),
+        ),
+      ),
+      home: const AuthGate(),
+      builder: (context, child) => ValueListenableBuilder<double>(
+        valueListenable: appTextScale,
+        builder: (context, scale, _) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child ?? const SizedBox.shrink(),
+        ),
       ),
     ),
   );
@@ -212,14 +231,25 @@ class ApiService {
 }
 
 Future<void> signOutSafely() async {
- final user=FirebaseAuth.instance.currentUser;
- if(user!=null){
-  try{await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('fcmTokens').doc('primary').delete();}catch(_){}
- }
  if(stick.connected){
   try{await stick.setAssistance(false);await stick.disconnect();}catch(_){}
  }
  await FirebaseAuth.instance.signOut();
+}
+
+Future<void> confirmSignOut(BuildContext context) async {
+ final confirm=await showDialog<bool>(
+  context:context,
+  builder:(dialogContext)=>AlertDialog(
+   title:const Text('Sign out?'),
+   content:const Text('You can sign in again with your email and password.'),
+   actions:[
+    TextButton(onPressed:()=>Navigator.pop(dialogContext,false),child:const Text('Cancel')),
+    FilledButton.icon(onPressed:()=>Navigator.pop(dialogContext,true),icon:const Icon(Icons.logout),label:const Text('Sign out')),
+   ],
+  ),
+ );
+ if(confirm==true)await signOutSafely();
 }
 
 class PairingService {
@@ -408,9 +438,37 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  void _changed(){if(!mounted)return;setState((){});if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
  Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.uid,p);}
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
- Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This saves an SOS alert to your linked patient record. If Firebase push delivery has been deployed and configured, linked caregivers will also be notified. Delivery or receipt cannot be guaranteed.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The alert was saved to Firestore. This does not confirm that a caregiver has seen it. Use your usual emergency contact method too if you are in danger.':'The alert could not be saved. Check internet and Firestore permissions, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
+ Future<void> _sos()async{
+  final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(
+   title:const Text('Send emergency alert?'),
+   content:const Text('This saves an SOS to the linked record. In zero-cost mode there is no automatic background push service. A connected caregiver can see the alert while their app is open. You can also open an SMS message and send it yourself.'),
+   actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save SOS'))],
+  ));
+  if(ok!=true)return;
+  final p=position??await getPosition();
+  final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');
+  if(!mounted)return;
+  final action=await showDialog<String>(context:context,builder:(c)=>AlertDialog(
+   title:Text(sent?'SOS saved':'SOS not saved'),
+   content:Text(sent?'The alert is saved. It does not confirm that a caregiver has seen it or that emergency services were contacted. For immediate contact, choose Share by SMS and select your trusted contact.':'The alert could not be saved. Check your connection and Firestore access. If you need help now, contact your trusted person or emergency service using your usual method.'),
+   actions:[
+    TextButton(onPressed:()=>Navigator.pop(c,'close'),child:const Text('Close')),
+    if(sent)FilledButton.icon(onPressed:()=>Navigator.pop(c,'sms'),icon:const Icon(Icons.sms_outlined),label:const Text('Share by SMS')),
+   ],
+  ));
+  if(action=='sms'&&sent){
+   final coords=p==null?'Location unavailable':'Location: ${p.latitude.toStringAsFixed(6)}, ${p.longitude.toStringAsFixed(6)}';
+   final uri=Uri(scheme:'sms',queryParameters:{'body':'BlindStick Companion SOS: I need help. $coords. Please contact me.'});
+   try{
+    final opened=await launchUrl(uri,mode:LaunchMode.externalApplication);
+    if(!opened&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('No SMS app is available. Copy the SOS details and contact your trusted person manually.')));
+   }catch(_){
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not open the SMS app. Contact your trusted person manually.')));
+   }
+  }
+ }
  @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
- @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('BlindStick Companion · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
+ @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Accessibility settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.accessibility_new)),TextButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out'))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
   Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
   Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'Waiting for stick':t.detectionStatus=='model_not_installed'?'AI model not installed':t.object!='Waiting for device data'?t.object:t.cameraFrameAvailable==true?'Camera active; no detection model':'Camera unavailable',teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
   if(stick.lastError!=null)Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),child:Text(stick.lastError!,style:const TextStyle(color:red))),
@@ -431,29 +489,7 @@ class CaregiverPage extends StatefulWidget{
 }
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
- StreamSubscription<RemoteMessage>? _foregroundMessages;
- StreamSubscription<String>? _tokenRefresh;
- @override void initState(){super.initState();_registerPushToken();_foregroundMessages=FirebaseMessaging.onMessage.listen((message){
-  if(!mounted)return;
-  final title=message.notification?.title??'BlindStick Companion update';
-  final body=message.notification?.body??'A new update has arrived.';
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$title: $body'),duration:const Duration(seconds:6)));
- });}
- Future<void> _savePushToken(String token)async{
-  await FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('fcmTokens').doc('primary').set({'token':token,'platform':'android','updatedAt':FieldValue.serverTimestamp()});
- }
- Future<void> _registerPushToken()async{
-  try{
-   final messaging=FirebaseMessaging.instance;
-   await messaging.requestPermission(alert:true,badge:true,sound:true,provisional:false);
-   final token=await messaging.getToken();
-   if(token!=null)await _savePushToken(token);
-   _tokenRefresh=messaging.onTokenRefresh.listen((token){_savePushToken(token);});
-  }catch(_){
-   // Foreground Firestore updates remain available if push setup/permission is unavailable.
-  }
- }
- @override void dispose(){codeController.dispose();_foregroundMessages?.cancel();_tokenRefresh?.cancel();super.dispose();}
+ @override void dispose(){codeController.dispose();super.dispose();}
  Future<void> _pair()async{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
@@ -468,7 +504,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
   }finally{if(mounted)setState(()=>pairing=false);}
  }
  @override Widget build(BuildContext c)=>Scaffold(
-  appBar:AppBar(title:const Text('BlindStick Companion · Support',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings and accessibility',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),
+  appBar:AppBar(title:const Text('Support',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Accessibility settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.accessibility_new)),TextButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out'))]),
   body:StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(
    stream:FirebaseFirestore.instance.collection('pairingClaims').doc(widget.user.uid).snapshots(),
    builder:(context,claimSnapshot){
@@ -527,20 +563,18 @@ class _CaregiverPageState extends State<CaregiverPage>{
    }),
  );
  Future<void> _openLastLocation(double lat,double lon)async{
-  final url=Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lon');
-  try{final opened=await launchUrl(url,mode:LaunchMode.externalApplication);if(!opened&&mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not open Maps.')));}
-  catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not open Maps.')));}
+  await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>InAppNavigationPage(initialDestination:LatLng(lat,lon),initialDestinationLabel:'Shared patient location')));
  }
 }
 
 class SettingsPage extends StatefulWidget{const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
 class _SettingsPageState extends State<SettingsPage>{
- bool voice=true;double textScale=1.0;String? saved;
+ bool voice=true,highContrast=false;double textScale=1.0;String? saved;
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{
   final prefs=await SharedPreferences.getInstance();if(!mounted)return;
-  setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; });
-  voiceGuidanceEnabled=voice;appTextScale.value=textScale;
+  setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; highContrast=prefs.getBool('high_contrast')??false; });
+  voiceGuidanceEnabled=voice;appTextScale.value=textScale;appHighContrast.value=highContrast;
  }
  Future<void> _saveVoice(bool value)async{
   setState(()=>voice=value);voiceGuidanceEnabled=value;
@@ -550,6 +584,10 @@ class _SettingsPageState extends State<SettingsPage>{
   setState(()=>textScale=value);appTextScale.value=value;
   final prefs=await SharedPreferences.getInstance();await prefs.setDouble('text_scale',value);
  }
+ Future<void> _saveHighContrast(bool value)async{
+  setState(()=>highContrast=value);appHighContrast.value=value;
+  final prefs=await SharedPreferences.getInstance();await prefs.setBool('high_contrast',value);
+ }
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
   body:ListView(padding:const EdgeInsets.all(20),children:[
@@ -557,13 +595,15 @@ class _SettingsPageState extends State<SettingsPage>{
    const SizedBox(height:8),const Text('These controls work on this phone and are saved automatically.'),
    const SizedBox(height:24),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Spoken safety guidance',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Speak warnings and important status messages'),value:voice,onChanged:_saveVoice),
+   const SizedBox(height:10),
+   SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('High contrast',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Use a black-and-white colour scheme for low vision'),value:highContrast,onChanged:_saveHighContrast),
    const SizedBox(height:22),
    const Text('Text size',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800,color:navy)),
    const SizedBox(height:4),const Text('Make labels and instructions easier to read. Android display and TalkBack settings also continue to work.'),
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
    const SizedBox(height:22),OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
-   const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout),label:const Text('Sign out')),
+   const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
    const SizedBox(height:24),const Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
    const SizedBox(height:20),const Text('Safety note',style:TextStyle(color:Color(0xFF64748B))),
