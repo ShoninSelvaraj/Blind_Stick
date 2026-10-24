@@ -490,6 +490,17 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     }
   }
 
+  void _centerOn(Position position) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _mapController.move(LatLng(position.latitude, position.longitude), 15);
+      } catch (_) {
+        // Map controller may not be attached on the first frame.
+      }
+    });
+  }
+
   Future<void> _startPositionStream({required bool guidanceMode}) async {
     await _positionSubscription?.cancel();
     LocationSettings settings = const LocationSettings(
@@ -497,7 +508,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       distanceFilter: 5,
     );
     if (guidanceMode && defaultTargetPlatform == TargetPlatform.android) {
-      settings = const AndroidSettings(
+      settings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
         intervalDuration: Duration(seconds: 2),
