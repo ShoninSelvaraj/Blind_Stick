@@ -857,7 +857,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     // Keep guidance in-app; avoid launching a plugin-managed foreground service
     // that can terminate the activity on some Android versions/configurations.
     if (guidanceMode && defaultTargetPlatform == TargetPlatform.android) {
-      settings = const AndroidSettings(
+      settings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
         intervalDuration: Duration(seconds: 2),
