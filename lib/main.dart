@@ -1447,11 +1447,32 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
  void _contrastChanged(){if(mounted)setState((){});}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
- Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
+ Future<void> _ensurePatientRecord() async {
+  try {
+   final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid);
+   final snap=await ref.get();
+   if(!snap.exists){
+    await ref.set({
+     'ownerUid':widget.user.uid,
+     'displayName':widget.user.name,
+     'caregiverUids':<String>[],
+     'deviceStatus':'not_connected',
+     'createdAt':FieldValue.serverTimestamp(),
+     'updatedAt':FieldValue.serverTimestamp(),
+    });
+   }else if(snap.data()?['ownerUid']!=widget.user.uid){
+    throw StateError('The patient record owner does not match the signed-in account.');
+   }
+   if(mounted)setState(()=>_patientRecordReady=true);
+  }catch(ex){
+   if(mounted)setState(()=>_patientRecordError='Patient profile could not be initialized. Check internet access and deploy the current Firestore rules, then retry. Details: ${ex.toString().replaceFirst('Bad state: ','')}');
+  }
+ }
+
  Future<void> _generatePairingCode() async {
   if(generatingCode)return;
   setState(()=>generatingCode=true);
@@ -1921,6 +1942,22 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     ]),
    ),
    const SizedBox(height:18),
+   if(!_patientRecordReady)Container(
+    padding:const EdgeInsets.all(14),
+    decoration:BoxDecoration(color:const Color(0xFFFFF7E6),borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFD6A243))),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Text('Account connection setup incomplete',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
+     const SizedBox(height:6),
+     Text(_patientRecordError??'Preparing your private patient record…',style:const TextStyle(fontSize:14)),
+     const SizedBox(height:8),
+     Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(
+      onPressed:_ensurePatientRecord,
+      icon:const Icon(Icons.refresh),
+      label:const Text('Retry setup'),
+     )),
+    ]),
+   ),
+   if(!_patientRecordReady)const SizedBox(height:12),
    _pairingCard(),
    const SizedBox(height:18),
    _section('Location sharing',Icons.location_on_outlined),
