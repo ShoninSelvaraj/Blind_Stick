@@ -40,7 +40,7 @@ Do not demo any unavailable camera/sensor function as working. A successful BLE 
 - The app's root `firebase.json` deploys only `firestore.rules`, not Cloud Functions.
 - Camera/range fusion is advisory: the ultrasonic value is not calibrated to a particular visual bounding box.
 - One/two/three short motor pulses represent approximate camera-left/right/ahead only when the range is not urgent; a fresh close-range reading overrides direction coding with one longer stop-priority pulse. This single-motor code is not a precise spatial actuator.
-- Mapping, geocoding and routing use open-source clients/public community services. Public endpoints have policies, limits and no uptime guarantee; the current endpoint settings can be changed in the app's advanced settings.
+- Mapping, geocoding and routing use open-source clients/public community services. Public endpoints have policies, limits and no uptime guarantee; the current endpoint settings can be changed in the app's advanced settings. Local camera HTTP requests use a Wi-Fi-bound Android connection so the whole app is not process-bound to the camera AP; online map access still depends on Android selecting a working internet route, normally mobile data.
 - No map tile or routing data is promised to work offline.
 - Do not put safety-critical navigation or emergency reliance on these public prototype services until there is a separately reviewed and tested plan.
 
