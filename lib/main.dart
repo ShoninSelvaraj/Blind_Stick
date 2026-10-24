@@ -153,7 +153,7 @@ class _LoginPageState extends State<LoginPage> {
  ])));
 }
 class StickTelemetry {
- double? distanceCm; String object='Waiting for device data'; String signal='unknown'; int? battery; bool? trafficWalk; String crowd='unknown'; DateTime? receivedAt;
+ double? distanceCm; String object='Waiting for device data'; String signal='unknown'; int? battery; bool? trafficWalk; String crowd='unknown'; String detectionStatus='waiting_for_device'; bool? cameraReady; bool? cameraFrameAvailable; DateTime? receivedAt;
  bool get urgent=>distanceCm!=null&&distanceCm!<35;
  bool get caution=>distanceCm!=null&&distanceCm!<90;
  void fromJson(Map<String,dynamic> j){
@@ -161,7 +161,11 @@ class StickTelemetry {
   object=(j['object']??j['detected_object']??j['label']??object).toString(); signal=(j['signal']??signal).toString();
   final b=j['battery']??j['battery_percent']; if(b is num)battery=b.toInt();
   if(j['traffic_walk'] is bool)trafficWalk=j['traffic_walk'];
-  if(j['crowd']!=null)crowd=j['crowd'].toString(); receivedAt=DateTime.now();
+  if(j['crowd']!=null)crowd=j['crowd'].toString();
+  if(j['detection_status']!=null)detectionStatus=j['detection_status'].toString();
+  if(j['camera_ready'] is bool)cameraReady=j['camera_ready'];
+  if(j['camera_frame_available'] is bool)cameraFrameAvailable=j['camera_frame_available'];
+  receivedAt=DateTime.now();
  }
 }
 
@@ -256,8 +260,8 @@ class PairingService {
 
 class BleStickService extends ChangeNotifier {
  final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<ScanResult>>? scanSub; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub; StreamSubscription<BluetoothAdapterState>? adapterSub;
- bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; DateTime? lastSpoken; String _lastWarning=''; String _packetBuffer='';
- BleStickService(){tts.setLanguage('en-IN');tts.setSpeechRate(0.46);}
+ bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; DateTime? lastSpoken; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;
+ BleStickService(){tts.setLanguage('en-IN');tts.setSpeechRate(0.46);_freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){if(!connected||!assistance)return;final last=telemetry.receivedAt;final stale=last==null||DateTime.now().difference(last)>const Duration(seconds:4);if(stale&&!_staleWarningSpoken){_staleWarningSpoken=true;lastError='Live stick data stopped. Do not rely on the app for obstacle warnings.';_event('Live sensor data stopped');HapticFeedback.heavyImpact();_speak('Warning. Live stick data has stopped. Stop and use your usual safe mobility method.');notifyListeners();}else if(!stale&&_staleWarningSpoken){_staleWarningSpoken=false;lastError=null;notifyListeners();}});}
  Future<void> scanAndConnect() async {
   if(scanning)return; scanning=true;status='Looking for your stick';lastError=null;notifyListeners();
   try{
@@ -314,7 +318,7 @@ class BleStickService extends ChangeNotifier {
  Future<void> announce(String s)=>_speak(s);
  void _event(String s){final now=DateTime.now();final stamp='${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';events.insert(0,'$stamp · $s');if(events.length>50)events.removeLast();final user=FirebaseAuth.instance.currentUser;if(user!=null){ApiService.instance.event(user.uid,'system',s);}}
  Future<void> disconnect()async{await device?.disconnect();connected=false;assistance=false;status='Stick disconnected';notifyListeners();}
- @override void dispose(){scanSub?.cancel();notifySub?.cancel();connectionSub?.cancel();adapterSub?.cancel();device?.disconnect();tts.stop();super.dispose();}
+ @override void dispose(){scanSub?.cancel();notifySub?.cancel();connectionSub?.cancel();adapterSub?.cancel();device?.disconnect();tts.stop();_freshnessTimer?.cancel();super.dispose();}
 }
 final stick=BleStickService();
 
@@ -336,7 +340,7 @@ Future<void> openNavigation(BuildContext context,String destination) async {
 }
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
  @override void initState(){super.initState();_load();_ensurePatientRecord();stick.addListener(_changed);}
  Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
  Future<void> _generatePairingCode() async {
@@ -379,14 +383,14 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   );
  }
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
- void _changed(){if(!mounted)return;setState((){});}
+ void _changed(){if(!mounted)return;setState((){});if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
  Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.uid,p);}
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
  Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This will save an SOS alert to your linked patient record in Firestore. A caregiver can see it when they refresh or while viewing alerts; push notifications are not configured yet.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The alert was saved to Firestore. This does not confirm that a caregiver has seen it. Use your usual emergency contact method too if you are in danger.':'The alert could not be saved. Check internet and Firestore permissions, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
  @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('Saathi · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
   Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
-  Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'No data':t.object,teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
+  Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'Waiting for stick':t.detectionStatus=='model_not_installed'?'AI model not installed':t.object!='Waiting for device data'?t.object:t.cameraFrameAvailable==true?'Camera active; no detection model':'Camera unavailable',teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
   if(stick.lastError!=null)Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),child:Text(stick.lastError!,style:const TextStyle(color:red))),
   SizedBox(height:56,child:FilledButton.icon(onPressed:stick.scanning?null:stick.scanAndConnect,icon:Icon(stick.scanning?Icons.hourglass_top:Icons.bluetooth_searching),label:Text(stick.scanning?'Searching…':stick.connected?'Reconnect to stick':'Find my stick',style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)))),const SizedBox(height:10),
   SizedBox(height:62,child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:stick.assistance?red:teal,foregroundColor:Colors.white),onPressed:stick.connected?()=>stick.setAssistance(!stick.assistance):null,icon:Icon(stick.assistance?Icons.pause_circle_filled:Icons.play_circle_fill,size:28),label:Text(stick.assistance?'Pause assistance':'Start assistance',style:const TextStyle(fontSize:19,fontWeight:FontWeight.w800)))),if(!stick.connected)const Padding(padding:EdgeInsets.only(top:8),child:Text('Connect the physical stick before starting live assistance.',style:TextStyle(color:Color(0xFF64748B)))),const SizedBox(height:18),_pairingCard(),const SizedBox(height:22),
@@ -456,7 +460,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
         Text('Connected to $name',style:const TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
         const SizedBox(height:8),Text('You are linked with permission. Updates appear here when they are shared.',style:const TextStyle(color:Colors.white70,fontSize:15))
        ])),
-       const SizedBox(height:20),const Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+       const SizedBox(height:20),const Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),const Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
        if(location is Map&&location['recordedAt'] is Timestamp)Padding(padding:const EdgeInsets.only(top:4),child:Text('Updated ${(location['recordedAt'] as Timestamp).toDate().toLocal()}',style:const TextStyle(color:Color(0xFF64748B)))),
        const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('Open location in Maps'))),
