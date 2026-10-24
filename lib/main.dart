@@ -1431,8 +1431,8 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'On-device AI model',
-    vision.modelReady?'SSD MobileNet COCO is downloaded and ready on this phone.':'Not downloaded. Prepare it while internet is available.',
+    'On-device AI models',
+    vision.modelReady?'Object and pedestrian-signal models are downloaded and ready on this phone.':'Models not downloaded. Prepare them while internet is available.',
     Icons.center_focus_strong,
     vision.modelReady?teal:Colors.orange,
    ),
@@ -1459,6 +1459,28 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
       padding:const EdgeInsets.only(top:6),
       child:Text('Traffic lamp estimate: ${vision.trafficState}. This does not confirm a pedestrian WALK signal.',style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
      ),
+     const SizedBox(height:10),
+     Text('Pedestrian signal model',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:navy)),
+     const SizedBox(height:5),
+     Semantics(
+      liveRegion:true,
+      child:Text(
+       vision.pedestrianSignalLost
+        ? 'Signal no longer visible. Crossing state is unknown.'
+        : switch(vision.pedestrianSignalState) {
+          'red' => 'Possible pedestrian RED detected. Stop and verify with the audible/tactile crossing signal.',
+          'green' => 'Possible pedestrian GREEN detected after a red baseline. This is not permission to cross; verify with the audible/tactile signal.',
+          'green_unconfirmed' => 'Possible pedestrian GREEN detected, but no red baseline was observed. Do not cross based on the app.',
+          _ => 'No confirmed pedestrian signal state. Use the audible/tactile crossing signal and your usual method.',
+        },
+       style:const TextStyle(fontSize:14,color:Color(0xFF59697B)),
+      ),
+     ),
+     if(vision.vehicleSignalState!='unknown')
+      Padding(
+       padding:const EdgeInsets.only(top:5),
+       child:Text('Vehicle signal estimate (not for pedestrian guidance): ${vision.vehicleSignalState}.',style:const TextStyle(fontSize:13,color:Color(0xFF59697B))),
+      ),
     ]),
    ),
    const SizedBox(height:10),
