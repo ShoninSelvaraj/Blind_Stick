@@ -257,6 +257,50 @@ class MainActivity : FlutterActivity() {
         return File(folder, "pedestrian-signal-yolo26n-7cls-int8-320.tflite")
     }
 
+    /** Copies the object-detection model bundled in the APK to app-private storage. */
+    private fun ensureModelFile(): File {
+        val destination = modelFile()
+        if (destination.exists() && destination.length() > 100_000) {
+            FileInputStream(destination).use { input ->
+                val header = ByteArray(8)
+                if (input.read(header) == header.size && String(header, 4, 4, Charsets.US_ASCII) == "TFL3") {
+                    return destination
+                }
+            }
+            destination.delete()
+        }
+
+        assets.open("vision-model/detect.tflite").use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output -> input.copyTo(output) }
+        }
+        FileInputStream(destination).use { input ->
+            val header = ByteArray(8)
+            if (destination.length() <= 100_000 || input.read(header) != header.size ||
+                String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                destination.delete()
+                throw IllegalStateException("The built-in obstacle-detection model is damaged. Reinstall the app.")
+            }
+        }
+        return destination
+    }
+
+    @Synchronized
+    private fun getInterpreter(file: File = modelFile()): Interpreter {
+        val existing = interpreter
+        if (existing != null) return existing
+        if (!file.exists() || file.length() <= 100_000) {
+            throw IllegalStateException("The built-in obstacle-detection model is missing. Tap Set up obstacle detection again.")
+        }
+        FileInputStream(file).use { input ->
+            val header = ByteArray(8)
+            if (input.read(header) != header.size || String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                throw IllegalStateException("The built-in obstacle-detection model failed its integrity check. Reinstall the app.")
+            }
+        }
+        val options = Interpreter.Options().apply { setNumThreads(2) }
+        return Interpreter(file, options).also { interpreter = it }
+    }
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->
