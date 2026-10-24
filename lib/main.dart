@@ -197,11 +197,11 @@ class StickTelemetry {
   signal=(j['signal']??'unknown').toString();
   final b=j['battery']??j['battery_percent'];
   battery=b is num?b.toInt():null;
-  trafficWalk=j['traffic_walk'] is bool?j['traffic_walk'] as bool?:null;
+  trafficWalk = j['traffic_walk'] is bool ? j['traffic_walk'] as bool : null;
   crowd=(j['crowd']??'unknown').toString();
   detectionStatus=(j['detection_status']??'waiting_for_device').toString();
-  cameraReady=j['camera_ready'] is bool?j['camera_ready'] as bool?:null;
-  cameraFrameAvailable=j['camera_frame_available'] is bool?j['camera_frame_available'] as bool?:null;
+  cameraReady = j['camera_ready'] is bool ? j['camera_ready'] as bool : null;
+  cameraFrameAvailable = j['camera_frame_available'] is bool ? j['camera_frame_available'] as bool : null;
   receivedAt=DateTime.now();
  }
 }
