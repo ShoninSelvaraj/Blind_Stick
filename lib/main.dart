@@ -465,15 +465,17 @@ class PairingService {
 
 class BleStickService extends ChangeNotifier {
  final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub;
- bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;bool _rangeWarningSpoken=false;
+ bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;bool _rangeWarningSpoken=false;bool _initialDeviceStateSynced=false;DateTime? _connectedAt;
  BleStickService(){
   tts.setLanguage('en-IN');
   tts.setSpeechRate(0.46);
   _freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){
-   if(!connected||!assistance){_rangeWarningSpoken=false;return;}
+   if(!connected){_rangeWarningSpoken=false;return;}
    final now=DateTime.now();
    final lastPacket=telemetry.receivedAt;
-   final packetStale=lastPacket==null||now.difference(lastPacket)>const Duration(seconds:4);
+   final packetStale=lastPacket==null
+       ? _connectedAt!=null&&now.difference(_connectedAt!)>const Duration(seconds:4)
+       : now.difference(lastPacket)>const Duration(seconds:4);
    if(packetStale){
     if(!_staleWarningSpoken){
      _staleWarningSpoken=true;
@@ -494,6 +496,7 @@ class BleStickService extends ChangeNotifier {
     _speak('Live stick communication has resumed. Check that obstacle sensors are working before continuing.');
     notifyListeners();
    }
+   if(!assistance){_rangeWarningSpoken=false;return;}
    final lastRange=telemetry.distanceReceivedAt;
    final rangeStale=telemetry.rangeSensorStatus=='unavailable'||
        telemetry.distanceCm==null||lastRange==null||
@@ -543,7 +546,23 @@ class BleStickService extends ChangeNotifier {
    telemetry.distanceReceivedAt=null;
    telemetry.receivedAt=null;
    telemetry.rangeSensorStatus='unknown';
-   connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){connected=s==BluetoothConnectionState.connected;if(!connected){assistance=false;status='Connection lost — stick alerts may be unavailable';_event('Connection lost');}else{status='Stick connected';_event('Stick connected');}notifyListeners();});
+   _initialDeviceStateSynced=false;
+   _connectedAt=DateTime.now();
+   connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){
+    connected=s==BluetoothConnectionState.connected;
+    if(!connected){
+     assistance=false;
+     _initialDeviceStateSynced=false;
+     _connectedAt=null;
+     status='Connection lost — stick alerts may be unavailable';
+     _event('Connection lost');
+    }else{
+     _connectedAt=DateTime.now();
+     status='Stick connected — checking live telemetry';
+     _event('Stick connected');
+    }
+    notifyListeners();
+   });
    final services=await device!.discoverServices(); BluetoothService? svc;
    for(final s in services){if(s.serviceUuid==Guid(serviceUuid)){svc=s;break;}}
    if(svc==null)throw Exception('Firmware service UUID does not match the app.');
@@ -580,8 +599,15 @@ class BleStickService extends ChangeNotifier {
      continue;
     }
     telemetry.fromJson(decoded);
-    if(telemetry.deviceAssistance!=null && telemetry.deviceAssistance!=assistance){
-     lastError='Stick assistance state does not match the app. Stop safely and reconnect/check the firmware.';
+    if(!_initialDeviceStateSynced && telemetry.deviceAssistance!=null){
+     // On reconnect, the stick may have kept local obstacle alerts active while
+     // the phone was disconnected. Adopt its real state so the user can stop it.
+     assistance=telemetry.deviceAssistance!;
+     _initialDeviceStateSynced=true;
+     status='Stick connected — live telemetry received';
+    }
+    if(_initialDeviceStateSynced && telemetry.deviceAssistance!=null && telemetry.deviceAssistance!=assistance){
+     lastError='Stick assistance state does not match the app. Stop safely and check the connection.';
     }else{
      lastError=null;
     }
@@ -609,6 +635,11 @@ class BleStickService extends ChangeNotifier {
  Future<void> setAssistance(bool on)async{
   if(!connected||commandChar==null){
    lastError='Connect to the stick before changing assistance mode.';
+   notifyListeners();
+   return;
+  }
+  if(!_initialDeviceStateSynced){
+   lastError='Waiting for the stick to send its first valid telemetry packet. Do not rely on assistance until live data is confirmed.';
    notifyListeners();
    return;
   }
