@@ -157,7 +157,7 @@ class _ProfilePendingPageState extends State<ProfilePendingPage> {
      TextField(controller:_nameController,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),
      const SizedBox(height:14),
      DropdownButtonFormField<Role>(
-      value:_role,
+      initialValue:_role,
       decoration:const InputDecoration(labelText:'How will you use BlindStick?',prefixIcon:Icon(Icons.accessibility_new)),
       items:const [
        DropdownMenuItem(value:Role.patient,child:Text('Use my smart stick')),
