@@ -56,8 +56,8 @@ static const char* CAMERA_AP_SSID = "BlindStick-Camera";
 static const char* CAMERA_AP_PASSWORD = "StickAssist#26";
 
 // Optional HC-SR04. Do not use an SD card while these pins are occupied.
-static const int ULTRASONIC_TRIG_GPIO = 13; // Shared with microSD D3; not used by this firmware.
-static const int ULTRASONIC_ECHO_GPIO = 14; // Shared with microSD CLK; not used by this firmware.
+static const int ULTRASONIC_TRIG_GPIO = 13; // Shared with microSD D3; keep SD card unused.
+static const int ULTRASONIC_ECHO_GPIO = 14; // Shared with microSD CLK; keep SD card unused.
 static const int VIBRATION_DRIVER_GPIO = 2; // Drive a transistor/MOSFET gate only; add a 10k pulldown.
 static const float STOP_DISTANCE_CM = 35.0f;
 static const float CAUTION_DISTANCE_CM = 90.0f;
@@ -169,6 +169,9 @@ void publishTelemetry() {
   doc["detection_status"] = "runs_on_android_phone";
   doc["camera_ap_ssid"] = CAMERA_AP_SSID;
   doc["camera_endpoint"] = "http://192.168.4.1";
+  // This firmware has no battery-voltage sensing circuit. Explicitly report
+  // unavailable rather than letting the app infer or fabricate a percentage.
+  doc["battery_status"] = "unavailable";
   const bool rangeFresh = lastDistanceCm >= 0 && millis() - distanceMeasuredAt < 1500;
   doc["range_sensor_status"] = rangeFresh ? "fresh" : "unavailable";
   if (rangeFresh) {
@@ -325,6 +328,9 @@ void setup() {
   cameraServer.begin();
 
   BLEDevice::init("BlindStick Companion");
+  // App telemetry is newline-delimited JSON; negotiate a larger notification MTU.
+  // The app also requests MTU 384 and validates protocol/device before accepting data.
+  BLEDevice::setMTU(384);
   BLEServer* server = BLEDevice::createServer();
   server->setCallbacks(new ServerCallbacks());
   BLEService* service = server->createService(SERVICE_UUID);
