@@ -275,16 +275,30 @@ class _LoginPageState extends State<LoginPage> {
 }
 const String expectedStickDeviceId = 'blindstick_companion-esp32cam';
 
-bool isCompatibleStickTelemetry(Map<String, dynamic> packet) =>
-    packet['protocol'] == 1 &&
-    packet['device'] == expectedStickDeviceId &&
-    packet['assistance'] is bool &&
-    packet['camera_ready'] is bool &&
-    packet['camera_frame_available'] is bool &&
-    packet['detection_status'] is String &&
-    packet['range_sensor_status'] is String &&
-    const {'fresh', 'unavailable'}.contains(packet['range_sensor_status']) &&
-    packet['battery_status'] is String;
+bool isCompatibleStickTelemetry(Map<String, dynamic> packet) {
+  final rangeStatus = packet['range_sensor_status'];
+  final distance = packet['distance_cm'];
+  final validRangeEnvelope = rangeStatus == 'fresh'
+      ? distance is num &&
+          distance.isFinite &&
+          distance >= 2 &&
+          distance <= 400
+      : rangeStatus == 'unavailable' && !packet.containsKey('distance_cm');
+
+  return packet['protocol'] == 1 &&
+      packet['device'] == expectedStickDeviceId &&
+      packet['assistance'] is bool &&
+      packet['camera_ready'] is bool &&
+      packet['camera_frame_available'] is bool &&
+      packet['detection_status'] is String &&
+      packet['camera_ap_ssid'] is String &&
+      (packet['camera_ap_ssid'] as String).isNotEmpty &&
+      packet['camera_endpoint'] is String &&
+      (packet['camera_endpoint'] as String).isNotEmpty &&
+      validRangeEnvelope &&
+      packet['battery_status'] is String &&
+      (packet['battery_status'] as String).isNotEmpty;
+}
 
 class StickTelemetry {
  double? distanceCm;
