@@ -53,7 +53,7 @@ tasks.register("prepareBundledVisionModels") {
             throw new GradleException("Bundled COCO SSD model failed TFLite integrity validation")
         }
         if (signalModelAsset.length() < 2_000_000 || sha256(signalModelAsset) != signalModelSha256 ||
-            new String(signalModelAsset.bytes[4..7], "US-ASCII") != "TFL3") {
+            new String(signalModelAsset.bytes, 4, 4, "US-ASCII") != "TFL3") {
             signalModelAsset.delete()
             throw new GradleException("Bundled pedestrian-signal model failed SHA-256/TFLite integrity validation")
         }
