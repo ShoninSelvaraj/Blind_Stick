@@ -15,7 +15,14 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-Future<void> main() async { WidgetsFlutterBinding.ensureInitialized(); await Firebase.initializeApp(); runApp(const BlindStickApp()); }
+Future<void> main() async {
+ WidgetsFlutterBinding.ensureInitialized();
+ await Firebase.initializeApp();
+ final preferences = await SharedPreferences.getInstance();
+ voiceGuidanceEnabled = preferences.getBool('voice') ?? true;
+ appTextScale.value = preferences.getDouble('text_scale') ?? 1.0;
+ runApp(const BlindStickApp());
+}
 
 const navy = Color(0xFF17233B);
 const teal = Color(0xFF007F78);
