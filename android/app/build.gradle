@@ -2,10 +2,11 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
 }
 
 android {
-    namespace = "com.santaburners.blindstick_companion"
+    namespace = "com.vimal.blindstick"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +17,7 @@ android {
     kotlinOptions { jvmTarget = JavaVersion.VERSION_17 }
 
     defaultConfig {
-        applicationId = "com.santaburners.blindstick_companion"
+        applicationId = "com.vimal.blindstick"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = 1
