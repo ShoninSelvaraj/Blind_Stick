@@ -164,6 +164,14 @@ class _LoginPageState extends State<LoginPage> {
   );
  }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
+ Align(
+  alignment:Alignment.centerRight,
+  child:TextButton.icon(
+   onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),
+   icon:const Icon(Icons.accessibility_new),
+   label:const Text('Accessibility settings'),
+  ),
+ ),
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
  const SizedBox(height:20),Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
  Text(createAccount?'Create your account':'Welcome back',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
