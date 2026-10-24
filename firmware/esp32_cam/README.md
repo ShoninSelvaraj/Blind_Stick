@@ -6,7 +6,7 @@ This folder targets the **AI Thinker ESP32-CAM-style board shown in the project 
 
 - Initializes the OV2640-compatible camera using AI Thinker pin assignments.
 - Advertises the BLE GATT service and characteristic UUIDs used by the Flutter app.
-- Accepts `hello`, `start`, and `stop` commands.
+- Accepts `hello`, `start`, `stop`, and `vibrate` BLE commands.
 - Captures a camera frame while assistance is enabled.
 - Runs a password-protected Wi-Fi AP named BlindStick-Camera and serves /status plus one JPEG frame from /capture while assistance is active.
 - Can read an optional HC-SR04 ultrasonic sensor and publish fresh distance_cm over BLE.
@@ -15,7 +15,7 @@ This folder targets the **AI Thinker ESP32-CAM-style board shown in the project 
 
 ## What it does not do yet
 
-It is not the finished AI firmware. The repository does not contain a trained object detector or traffic-light/crowd model, and the board photo alone cannot tell us which ultrasonic sensor, battery monitor, vibration motor driver, or wiring has been fitted. Those features must not be represented as working until their hardware/model is integrated and tested.
+The ESP32 itself does not run AI; it supplies camera frames and sensor readings while Android performs inference. Both models are now integrated in app source, but the complete hardware/software chain has not been physically tested on this board. The board photo alone cannot confirm an HC-SR04 module or vibration driver is fitted. Battery monitoring remains absent.
 
 ## Initial programming (board has no USB port)
 
@@ -39,7 +39,7 @@ The camera occupies many GPIOs. Do **not** assume arbitrary pins are free for an
 
 ## Protocol
 
-See `../docs/ble_protocol.json`. Telemetry is newline-terminated UTF-8 JSON. The app should show “AI model not installed” rather than claiming detections while the detector is absent.
+See `../../docs/ble_protocol.json`. Telemetry is newline-terminated UTF-8 JSON. The Android app prepares both on-device models on the Home screen. Missing models, unreachable camera frames or absent sensor telemetry must be reported as unavailable rather than converted to guessed detections.
 
 ## Build
 
@@ -75,6 +75,9 @@ The firmware provides local vibration for fresh distance measurements below the 
 
 ## On-device vision model and limitations
 
-The Android app downloads the official quantized SSD MobileNet V1 COCO model once, verifies the TFLite file header, caches it, and performs inference on the phone. Camera frames are fetched over the local Wi-Fi AP and remain on-device. The COCO detector covers common categories including people and traffic lights. Crowd level is a count-based estimate of people detected in a single frame. Traffic-lamp colour is a classical colour-pixel estimate inside a detected traffic-light box.
+The Android app downloads two models while the phone has internet access:
 
-This is not a pedestrian-signal model. A green vehicle signal is not equivalent to a pedestrian WALK indication, and the app intentionally never instructs the user to cross based only on this estimate. Tiny/distant traffic lights may return unknown. The user must use established crossing methods and must not rely on this prototype as the sole mobility aid.
+1. Quantized SSD MobileNet V1 COCO, downloaded from TensorFlow's model archive, detects common objects and people.
+2. The MIT-licensed YOLO26n seven-class TFLite model from [VIA-Safe-Crosswalk](https://github.com/25-p-project-team-6/VIA-Safe-Crosswalk) distinguishes `human_red`, `human_green`, `vehicle_red`, and `vehicle_green`. The app pins the expected SHA-256 in Android code and verifies it after download. See the repository's `THIRD_PARTY_NOTICES.md` for attribution.
+
+Camera frames are fetched over the local Wi-Fi AP and stay on the phone. Crowd level is a count-based estimate of people detected in one frame. The signal model is experimental: it needs further validation on the actual ESP32-CAM image stream and Indian crossings. The app requires repeated predictions and a red baseline before reporting a possible green pedestrian signal; loss of signal visibility clears that baseline. It never tells the user to cross based on inference. A `human_green` prediction is not proof the crossing is safe. Users must confirm with established audible/tactile crossing cues and mobility practices. This prototype must not be the sole mobility aid.
