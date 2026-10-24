@@ -23,6 +23,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipInputStream
 import kotlin.math.abs
@@ -34,8 +35,23 @@ class MainActivity : FlutterActivity() {
     private val visionChannelName = "blindstick_companion/vision"
     private val modelZipUrl =
         "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
+    // MIT-licensed 7-class YOLO26n model distinguishes pedestrian-signal red/green
+    // from vehicle-signal red/green. Its checksum is pinned to the upstream notice.
+    private val pedestrianSignalModelUrl =
+        "https://raw.githubusercontent.com/25-p-project-team-6/VIA-Safe-Crosswalk/main/app/src/main/assets/best_yolo26n_7cls_v2_raw_int8_320.tflite"
+    private val pedestrianSignalSha256 =
+        "36243860db3e4c08346c9be4a13c1be36a5e01e2088b11eca7ad7233938a40ef"
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     @Volatile private var interpreter: Interpreter? = null
+    @Volatile private var pedestrianSignalInterpreter: Interpreter? = null
+    private data class SignalCandidate(
+        val label: String,
+        val confidence: Float,
+        val left: Float,
+        val top: Float,
+        val right: Float,
+        val bottom: Float
+    )
 
     private val cocoLabels = mapOf(
         1 to "person", 2 to "bicycle", 3 to "car", 4 to "motorcycle",
@@ -90,13 +106,25 @@ class MainActivity : FlutterActivity() {
                             result.error("WIFI_SETTINGS", error.message, null)
                         }
                     }
-                    "visionModelReady" -> result.success(modelFile().let { it.exists() && it.length() > 100_000 })
+                    "visionModelReady" -> result.success(
+                        modelFile().let { it.exists() && it.length() > 100_000 } &&
+                        pedestrianSignalModelFile().let { it.exists() && it.length() > 2_000_000 }
+                    )
                     "prepareVisionModel" -> worker.execute {
                         try {
                             val file = ensureModelFile()
-                            // Opening the interpreter here verifies the downloaded file before the UI says ready.
                             getInterpreter(file)
-                            runOnUiThread { result.success(mapOf("ready" to true, "model" to "SSD MobileNet V1 COCO", "bytes" to file.length())) }
+                            val signalFile = ensurePedestrianSignalModelFile()
+                            getPedestrianSignalInterpreter(signalFile)
+                            runOnUiThread {
+                                result.success(
+                                    mapOf(
+                                        "ready" to true,
+                                        "model" to "SSD MobileNet COCO + YOLO26n pedestrian signal",
+                                        "bytes" to file.length() + signalFile.length()
+                                    )
+                                )
+                            }
                         } catch (error: Exception) {
                             runOnUiThread { result.error("VISION_MODEL", error.message ?: "Model download failed", null) }
                         }
@@ -125,6 +153,70 @@ class MainActivity : FlutterActivity() {
         val folder = File(filesDir, "vision-model")
         if (!folder.exists()) folder.mkdirs()
         return File(folder, "detect.tflite")
+    }
+
+    private fun pedestrianSignalModelFile(): File {
+        val folder = File(filesDir, "vision-model")
+        if (!folder.exists()) folder.mkdirs()
+        return File(folder, "pedestrian-signal-yolo26n-7cls-int8-320.tflite")
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val block = ByteArray(32 * 1024)
+            while (true) {
+                val read = input.read(block)
+                if (read <= 0) break
+                digest.update(block, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun ensurePedestrianSignalModelFile(): File {
+        val destination = pedestrianSignalModelFile()
+        if (destination.exists() && destination.length() > 2_000_000) {
+            if (sha256(destination) == pedestrianSignalSha256) return destination
+            destination.delete()
+        }
+
+        val temporary = File(destination.parentFile, "pedestrian-signal.tflite.part")
+        val connection = (URL(pedestrianSignalModelUrl).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "BlindStick-Companion/1.0")
+        }
+        try {
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("Pedestrian-signal model download returned HTTP ${connection.responseCode}.")
+            }
+            BufferedInputStream(connection.inputStream).use { input ->
+                BufferedOutputStream(FileOutputStream(temporary)).use { output -> input.copyTo(output) }
+            }
+        } finally {
+            connection.disconnect()
+        }
+
+        if (temporary.length() < 2_000_000 || sha256(temporary) != pedestrianSignalSha256) {
+            temporary.delete()
+            throw IllegalStateException("Pedestrian-signal model failed the pinned SHA-256 integrity check.")
+        }
+        FileInputStream(temporary).use { input ->
+            val bytes = ByteArray(8)
+            if (input.read(bytes) != bytes.size || String(bytes, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                temporary.delete()
+                throw IllegalStateException("Pedestrian-signal model is not a valid TFLite file.")
+            }
+        }
+        if (destination.exists()) destination.delete()
+        if (!temporary.renameTo(destination)) {
+            temporary.copyTo(destination, overwrite = true)
+            temporary.delete()
+        }
+        return destination
     }
 
     private fun ensureModelFile(): File {
@@ -191,10 +283,21 @@ class MainActivity : FlutterActivity() {
         val existing = interpreter
         if (existing != null) return existing
         if (!file.exists() || file.length() < 100_000) {
-            throw IllegalStateException("AI model not prepared. Connect to the internet and tap Prepare on-device AI first.")
+            throw IllegalStateException("General object-detection model not prepared. Connect to the internet and tap Prepare on-device AI first.")
         }
         val options = Interpreter.Options().apply { setNumThreads(2) }
         return Interpreter(file, options).also { interpreter = it }
+    }
+
+    @Synchronized
+    private fun getPedestrianSignalInterpreter(file: File = pedestrianSignalModelFile()): Interpreter {
+        val existing = pedestrianSignalInterpreter
+        if (existing != null) return existing
+        if (!file.exists() || file.length() < 2_000_000 || sha256(file) != pedestrianSignalSha256) {
+            throw IllegalStateException("Pedestrian-signal model is missing or failed integrity verification. Prepare the on-device models again.")
+        }
+        val options = Interpreter.Options().apply { setNumThreads(2) }
+        return Interpreter(file, options).also { pedestrianSignalInterpreter = it }
     }
 
     private fun detectJpeg(jpeg: ByteArray): Map<String, Any> {
@@ -316,14 +419,130 @@ class MainActivity : FlutterActivity() {
             if (label == "person" && score >= 0.40f) people++
         }
 
+        val pedestrianSignals = try {
+            detectPedestrianSignals(source)
+        } catch (_: Exception) {
+            // An independent signal-model failure must not suppress common-object detection.
+            emptyList()
+        }
+
         if (resized !== source) resized.recycle()
         source.recycle()
         return mapOf(
             "model" to "SSD MobileNet V1 COCO (quantized)",
             "detections" to detections,
             "personCount" to people,
-            "crowdLevel" to when { people >= 5 -> "high"; people >= 3 -> "medium"; else -> "low" }
+            "crowdLevel" to when { people >= 5 -> "high"; people >= 3 -> "medium"; else -> "low" },
+            "pedestrianSignals" to pedestrianSignals
         )
+    }
+
+    private fun detectPedestrianSignals(bitmap: Bitmap): List<Map<String, Any>> {
+        val model = getPedestrianSignalInterpreter()
+        val inputTensor = model.getInputTensor(0)
+        val inputShape = inputTensor.shape()
+        if (inputShape.size != 4 || inputShape[0] != 1 || inputShape[3] != 3) {
+            throw IllegalStateException("Unexpected pedestrian-signal model input shape: ${inputShape.contentToString()}")
+        }
+        val height = inputShape[1]
+        val width = inputShape[2]
+        val outputTensor = model.getOutputTensor(0)
+        val outputShape = outputTensor.shape()
+        if (outputShape.size != 3 || outputShape[0] != 1 || outputShape[1] != 11) {
+            throw IllegalStateException("Unexpected pedestrian-signal model output shape: ${outputShape.contentToString()}")
+        }
+        val anchors = outputShape[2]
+        val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+        val pixels = IntArray(width * height)
+        resized.getPixels(pixels, 0, width, 0, 0, width, height)
+        val input = ByteBuffer.allocateDirect(inputTensor.numBytes()).order(ByteOrder.nativeOrder())
+        val inputQuant = inputTensor.quantizationParams()
+        for (pixel in pixels) {
+            val channels = intArrayOf((pixel shr 16) and 0xFF, (pixel shr 8) and 0xFF, pixel and 0xFF)
+            for (channel in channels) {
+                val normal = channel / 255.0f
+                when (inputTensor.dataType()) {
+                    DataType.FLOAT32 -> input.putFloat(normal)
+                    DataType.UINT8 -> input.put(channel.toByte())
+                    DataType.INT8 -> {
+                        val scale = if (inputQuant.scale > 0f) inputQuant.scale else (1f / 255f)
+                        input.put(((normal / scale + inputQuant.zeroPoint).roundToInt()).coerceIn(-128, 127).toByte())
+                    }
+                    else -> throw IllegalStateException("Unsupported signal-model input type: ${inputTensor.dataType()}")
+                }
+            }
+        }
+        input.rewind()
+
+        val outputBuffer = ByteBuffer.allocateDirect(outputTensor.numBytes()).order(ByteOrder.nativeOrder())
+        model.run(input, outputBuffer)
+        outputBuffer.rewind()
+        val output = when (outputTensor.dataType()) {
+            DataType.FLOAT32 -> FloatArray(outputTensor.numElements()) { outputBuffer.float }
+            DataType.UINT8 -> {
+                val q = outputTensor.quantizationParams()
+                FloatArray(outputTensor.numElements()) { ((outputBuffer.get().toInt() and 0xFF) - q.zeroPoint) * q.scale }
+            }
+            DataType.INT8 -> {
+                val q = outputTensor.quantizationParams()
+                FloatArray(outputTensor.numElements()) { (outputBuffer.get().toInt() - q.zeroPoint) * q.scale }
+            }
+            else -> throw IllegalStateException("Unsupported signal-model output type: ${outputTensor.dataType()}")
+        }
+        if (resized !== bitmap) resized.recycle()
+
+        val labels = listOf("bicycle", "motorcycle", "vehicle", "human_green", "human_red", "vehicle_green", "vehicle_red")
+        val candidates = ArrayList<SignalCandidate>()
+        fun value(channel: Int, anchor: Int): Float = output[channel * anchors + anchor]
+        for (anchor in 0 until anchors) {
+            var classIndex = -1
+            var bestScore = 0f
+            for (classOffset in 0 until labels.size) {
+                val score = value(4 + classOffset, anchor)
+                if (score > bestScore) {
+                    bestScore = score
+                    classIndex = classOffset
+                }
+            }
+            if (classIndex !in labels.indices || bestScore < 0.38f) continue
+            val cxRaw = value(0, anchor)
+            val cyRaw = value(1, anchor)
+            val widthRaw = value(2, anchor)
+            val heightRaw = value(3, anchor)
+            val cx = if (cxRaw > 1f) cxRaw / width else cxRaw
+            val cy = if (cyRaw > 1f) cyRaw / height else cyRaw
+            val boxWidth = if (widthRaw > 1f) widthRaw / width else widthRaw
+            val boxHeight = if (heightRaw > 1f) heightRaw / height else heightRaw
+            val left = (cx - boxWidth / 2f).coerceIn(0f, 1f)
+            val top = (cy - boxHeight / 2f).coerceIn(0f, 1f)
+            val right = (cx + boxWidth / 2f).coerceIn(0f, 1f)
+            val bottom = (cy + boxHeight / 2f).coerceIn(0f, 1f)
+            if (right <= left || bottom <= top) continue
+            candidates.add(SignalCandidate(labels[classIndex], bestScore, left, top, right, bottom))
+        }
+
+        fun intersectionOverUnion(a: SignalCandidate, b: SignalCandidate): Float {
+            val intersectionWidth = max(0f, min(a.right, b.right) - max(a.left, b.left))
+            val intersectionHeight = max(0f, min(a.bottom, b.bottom) - max(a.top, b.top))
+            val intersection = intersectionWidth * intersectionHeight
+            val areaA = (a.right - a.left) * (a.bottom - a.top)
+            val areaB = (b.right - b.left) * (b.bottom - b.top)
+            val union = areaA + areaB - intersection
+            return if (union <= 0f) 0f else intersection / union
+        }
+        val kept = ArrayList<SignalCandidate>()
+        for (candidate in candidates.sortedByDescending { it.confidence }) {
+            if (kept.any { it.label == candidate.label && intersectionOverUnion(it, candidate) > 0.45f }) continue
+            kept.add(candidate)
+            if (kept.size >= 20) break
+        }
+        return kept.map {
+            mapOf(
+                "label" to it.label,
+                "confidence" to it.confidence.toDouble(),
+                "box" to listOf(it.top.toDouble(), it.left.toDouble(), it.bottom.toDouble(), it.right.toDouble())
+            )
+        }
     }
 
     private fun classifyTrafficLamp(bitmap: Bitmap, left: Float, top: Float, right: Float, bottom: Float): String {
@@ -368,6 +587,8 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
         worker.shutdown()
         interpreter?.close()
+        pedestrianSignalInterpreter?.close()
         interpreter = null
+        pedestrianSignalInterpreter = null
     }
 }
