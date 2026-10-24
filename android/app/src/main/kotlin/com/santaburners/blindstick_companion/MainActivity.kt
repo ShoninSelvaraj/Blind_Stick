@@ -11,11 +11,11 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "dishaflow_emergency_alerts",
-                "DishaFlow emergency alerts",
+                "blindstick_companion_emergency_alerts",
+                "BlindStick Companion emergency alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Urgent SOS alerts from a person linked to your DishaFlow account"
+                description = "Urgent SOS alerts from a person linked to your BlindStick Companion account"
                 enableVibration(true)
                 setShowBadge(true)
             }
