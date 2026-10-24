@@ -5,20 +5,53 @@
   "characteristics": {
     "telemetry": {
       "uuid": "7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001",
-      "properties": ["notify"],
+      "properties": [
+        "notify"
+      ],
       "encoding": "UTF-8 JSON, newline-delimited",
-      "example": {"distance_cm": 42, "object": "person ahead", "battery": 78, "traffic_walk": false, "crowd": "medium"}
+      "example": {
+        "protocol": 1,
+        "device": "blindstick_companion-esp32cam",
+        "assistance": true,
+        "camera_ready": true,
+        "camera_frame_available": true,
+        "detection_status": "runs_on_android_phone",
+        "camera_ap_ssid": "BlindStick-Camera",
+        "camera_endpoint": "http://192.168.4.1",
+        "distance_cm": 42
+      }
     },
     "command": {
       "uuid": "7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001",
-      "properties": ["write", "write without response optional"],
+      "properties": [
+        "write",
+        "write without response optional"
+      ],
       "encoding": "UTF-8 JSON, newline-delimited",
-      "commands": [{"cmd":"hello","protocol":1},{"cmd":"start"},{"cmd":"stop"}]
+      "commands": [
+        {
+          "cmd": "hello",
+          "protocol": 1
+        },
+        {
+          "cmd": "start"
+        },
+        {
+          "cmd": "stop"
+        },
+        {
+          "cmd": "vibrate",
+          "duration_ms": 180
+        }
+      ]
     }
   },
   "notes": [
-    "Do not report fabricated sensor values. Omit unknown fields until valid measurements exist.",
-    "Local hardware warnings must continue if the phone disconnects.",
-    "traffic_walk must be emitted only by a validated traffic-light detector; never infer permission to cross from an unvalidated model."
+    "Only publish distance_cm when a fresh valid ultrasonic measurement exists; the app clears the displayed measurement when a packet omits it.",
+    "Object detections, person counts, and traffic-lamp estimates are computed on the phone from JPEGs returned by the local camera AP, not sent by the ESP32 firmware.",
+    "Local hardware warnings must continue if the phone disconnects once assistance is active.",
+    "The traffic-lamp estimate is not a pedestrian-signal detector. Never infer permission to cross from a green/red/amber estimate.",
+    "The motor output must be driven through a suitable transistor/MOSFET circuit; never drive a motor directly from a GPIO.",
+    "HC-SR04 ECHO is commonly 5V and must be level-shifted to the ESP32's 3.3V input limit."
   ]
 }
