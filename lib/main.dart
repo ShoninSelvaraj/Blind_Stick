@@ -1596,12 +1596,21 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    if(!mounted)return;
    setState(() { pairingCode=result.$1; pairingExpiresAt=result.$2; });
    pairExpiryTimer?.cancel();
-   pairExpiryTimer=Timer(const Duration(minutes:10),(){
+   pairExpiryTimer=Timer(const Duration(minutes:9),(){
     if(mounted)setState(() { pairingCode=null; pairingExpiresAt=null; });
    });
-   await stick.announce('Your caregiver pairing code is ${result.$1.split('').join(' ')}. It expires in ten minutes. Share it only with someone you trust.');
+   await stick.announce('Your caregiver code is ${result.$1.split('').join(' ')}. It expires in nine minutes. Share it only with someone you trust.');
+  }on FirebaseException catch(ex){
+   if(!mounted)return;
+   final message=switch(ex.code){
+    'permission-denied'=>'We couldn’t create a code because account access was denied. Please ask the app administrator to check the deployed Firestore rules.',
+    'unavailable'||'deadline-exceeded'=>'The connection is unavailable. Check your internet connection and try again.',
+    'unauthenticated'=>'Your sign-in has expired. Sign in again, then try once more.',
+    _=>'We couldn’t create a code right now. Please try again. (\${ex.code})',
+   };
+   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message),duration:const Duration(seconds:6)));
   }catch(_){
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('We couldn’t connect your trusted person. Check your internet connection and try again.')));
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('We couldn’t create a code right now. Check your connection and try again.')));
   }finally{if(mounted)setState(()=>generatingCode=false);}
  }
  Widget _pairingCard(){
