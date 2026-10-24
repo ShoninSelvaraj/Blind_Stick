@@ -3,6 +3,36 @@ import 'package:blindstick_companion/main.dart';
 
 void main() {
   group('StickTelemetry', () {
+    test('accepts only the firmware protocol and device identity', () {
+      expect(
+        isCompatibleStickTelemetry({
+          'protocol': 1,
+          'device': 'blindstick_companion-esp32cam',
+        }),
+        isTrue,
+      );
+      expect(
+        isCompatibleStickTelemetry({
+          'protocol': 2,
+          'device': 'blindstick_companion-esp32cam',
+        }),
+        isFalse,
+      );
+      expect(
+        isCompatibleStickTelemetry({
+          'protocol': 1,
+          'device': 'some-other-device',
+        }),
+        isFalse,
+      );
+    });
+
+    test('does not invent a battery percentage when firmware says unavailable', () {
+      final telemetry = StickTelemetry();
+      telemetry.fromJson({'battery_status': 'unavailable'});
+      expect(telemetry.battery, isNull);
+    });
+
     test('accepts a valid fresh distance and classifies urgency', () {
       final telemetry = StickTelemetry();
 
