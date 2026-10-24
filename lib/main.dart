@@ -17,6 +17,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'camera_vision_service.dart';
 
 Future<void> main() async {
  WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,7 @@ Future<void> main() async {
  voiceGuidanceEnabled = preferences.getBool('voice') ?? true;
  appTextScale.value = preferences.getDouble('text_scale') ?? 1.0;
  appHighContrast.value = preferences.getBool('high_contrast') ?? false;
+ await vision.initialize();
  runApp(const BlindStickApp());
 }
 
@@ -370,6 +372,7 @@ class BleStickService extends ChangeNotifier {
  }
  Future<void> _command(Map<String,dynamic> cmd)async{if(!connected||commandChar==null)return;final bytes=utf8.encode('${jsonEncode(cmd)}\n');await commandChar!.write(bytes,withoutResponse:commandChar!.properties.writeWithoutResponse&&!commandChar!.properties.write);}
  Future<void> setAssistance(bool on)async{assistance=on;await _command({'cmd':on?'start':'stop'});_event(on?'Assistance started':'Assistance paused');if(on)_speak('Assistance started. Stay aware of your surroundings.');notifyListeners();}
+ Future<void> pulseVibration({int durationMs=180})async{if(!connected||!assistance||commandChar==null)return;try{await _command({'cmd':'vibrate','duration_ms':durationMs});}catch(_){}}
  Future<void> _speak(String s)async{if(!voiceGuidanceEnabled)return;await tts.stop();await tts.speak(s);}
  Future<void> announce(String s)=>_speak(s);
  void _event(String s){final now=DateTime.now();final stamp='${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';events.insert(0,'$stamp · $s');if(events.length>50)events.removeLast();final user=FirebaseAuth.instance.currentUser;if(user!=null){ApiService.instance.event(user.uid,'system',s);}}
@@ -377,6 +380,17 @@ class BleStickService extends ChangeNotifier {
  @override void dispose(){notifySub?.cancel();connectionSub?.cancel();device?.disconnect();tts.stop();_freshnessTimer?.cancel();super.dispose();}
 }
 final stick=BleStickService();
+
+Future<void> _logVisionEvent(String message) async {
+ final uid=FirebaseAuth.instance.currentUser?.uid;
+ if(uid!=null) await ApiService.instance.event(uid,'vision',message);
+}
+
+final vision=CameraVisionService(
+ speak:(message)=>stick.announce(message),
+ vibrate:(durationMs)=>stick.pulseVibration(durationMs:durationMs),
+ logEvent:_logVisionEvent,
+);
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
 
