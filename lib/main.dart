@@ -1601,7 +1601,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    });
    await stick.announce('Your caregiver pairing code is ${result.$1.split('').join(' ')}. It expires in ten minutes. Share it only with someone you trust.');
   }catch(_){
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not create a pairing code. Check your connection and Firestore rules.')));
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('We couldn’t connect your trusted person. Check your internet connection and try again.')));
   }finally{if(mounted)setState(()=>generatingCode=false);}
  }
  Widget _pairingCard(){
@@ -1749,7 +1749,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _sos()async{
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(
    title:const Text('Send emergency alert?'),
-   content:const Text('This saves an SOS to the linked record. In zero-cost mode there is no automatic background push service. A connected caregiver can see the alert while their app is open. You can also open an SMS message and send it yourself.'),
+   content:const Text('This will save an emergency alert for your trusted contact. Saving it does not mean they have received it or that emergency services have been contacted. After saving, you can open a text message to contact them directly.'),
    actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save SOS'))],
   ));
   if(ok!=true)return;
@@ -1758,7 +1758,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   if(!mounted)return;
   final action=await showDialog<String>(context:context,builder:(c)=>AlertDialog(
    title:Text(sent?'SOS saved':'SOS not saved'),
-   content:Text(sent?'The alert is saved. It does not confirm that a caregiver has seen it or that emergency services were contacted. For immediate contact, choose Share by SMS and select your trusted contact.':'The alert could not be saved. Check your connection and Firestore access. If you need help now, contact your trusted person or emergency service using your usual method.'),
+   content:Text(sent?'Your alert was saved, but we cannot confirm that your trusted contact has seen it. If you need help now, use Share by SMS to contact them directly.':'Your alert could not be saved. Check your connection. If you need help now, contact your trusted person or local emergency services directly.'),
    actions:[
     TextButton(onPressed:()=>Navigator.pop(c,'close'),child:const Text('Close')),
     if(sent)FilledButton.icon(onPressed:()=>Navigator.pop(c,'sms'),icon:const Icon(Icons.sms_outlined),label:const Text('Share by SMS')),
@@ -1955,7 +1955,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     child:FilledButton.icon(
      onPressed:vision.modelReady||vision.preparing?null:vision.prepareModel,
      icon:vision.preparing?const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)):Icon(vision.modelReady?Icons.check_circle_outline:Icons.download_for_offline_outlined,size:26),
-     label:Text(vision.preparing?'Preparing AI model…':vision.modelReady?'On-device AI model prepared':'Prepare on-device AI model',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+     label:Text(vision.preparing?'Setting up obstacle detection…':vision.modelReady?'Obstacle detection is ready':'Set up obstacle detection',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
    ),
    const SizedBox(height:8),
@@ -2013,7 +2013,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
      SizedBox(height:12),
      Text('Where would you like to go?',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),
      SizedBox(height:8),
-     Text('Search for a destination, review the walking route, then choose Start spoken directions.',style:TextStyle(color:Colors.white70,fontSize:16)),
+     Text('Choose where you want to go. We’ll show a walking route and can read the directions aloud. Follow your usual mobility method and confirm your surroundings as you travel.',style:TextStyle(color:Colors.white70,fontSize:16)),
     ]),
    ),
    const SizedBox(height:20),
@@ -2033,7 +2033,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     child:FilledButton.icon(
      onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
      icon:const Icon(Icons.map_outlined,size:28),
-     label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+     label:const Text('Plan a walking route',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
    ),
    const SizedBox(height:12),
@@ -2049,7 +2049,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    ),
    const SizedBox(height:22),
    const Text(
-    'Navigation note: the route uses public community mapping services and phone GPS. It can be incomplete or inaccurate. Do not start walking based on a route preview alone; stop if spoken directions do not match your surroundings.',
+    'Walking routes and phone GPS can be inaccurate or miss obstacles. Listen to the directions only as a guide, use your usual mobility aid, and stop somewhere safe if the route does not match your surroundings.',
     style:TextStyle(fontSize:14,color:Color(0xFF59697B)),
    ),
   ],
