@@ -19,6 +19,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'camera_vision_service.dart';
 
+const MethodChannel caregiverAlertsChannel = MethodChannel('blindstick_companion/alerts');
+
 Future<void> main() async {
  WidgetsFlutterBinding.ensureInitialized();
  await Firebase.initializeApp();
@@ -300,6 +302,7 @@ class ApiService {
 }
 
 Future<void> signOutSafely() async {
+ try{await caregiverAlertsChannel.invokeMethod<void>('stopCaregiverAlertMonitor');}catch(_){}
  if(stick.connected){
   try{await stick.setAssistance(false);await stick.disconnect();}catch(_){}
  }
@@ -1930,7 +1933,21 @@ class CaregiverPage extends StatefulWidget{
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
  bool _alertsPrimed=false;String? _alertPatientUid;final Set<String> _seenAlertIds=<String>{};
- @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
+ bool _monitorEnabled=false;bool _monitorStarting=false;
+ @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);_refreshMonitorState();}
+ Future<void> _refreshMonitorState() async {try{final running=await caregiverAlertsChannel.invokeMethod<bool>('isCaregiverAlertMonitorRunning')??false;if(mounted)setState(()=>_monitorEnabled=running);}catch(_){}}
+ Future<void> _enableBackgroundAlerts() async {
+  if(_monitorStarting)return;
+  setState(()=>_monitorStarting=true);
+  try{
+   final permission=await Permission.notification.request();
+   if(!permission.isGranted){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications are disabled. Allow notifications in Android settings to receive background SOS alerts.')));return;}
+   await caregiverAlertsChannel.invokeMethod<bool>('startCaregiverAlertMonitor');
+   if(mounted)setState(()=>_monitorEnabled=true);
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Background SOS monitoring is enabled. Keep its persistent notification visible.')));
+  }catch(error){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));}
+  finally{if(mounted)setState(()=>_monitorStarting=false);}
+ }
  void _contrastChanged(){if(mounted)setState((){});}
  @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
 
@@ -2020,6 +2037,18 @@ class _CaregiverPageState extends State<CaregiverPage>{
         Text('Connected to $name',style:const TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
         const SizedBox(height:8),const Text('You are linked with permission. Updates appear here when they are shared.',style:TextStyle(color:Colors.white70,fontSize:15))
        ])),
+       const SizedBox(height:18),
+       Container(
+        padding:const EdgeInsets.all(16),
+        decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(18),border:Border.all(color:teal.withValues(alpha:0.25))),
+        child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+         Row(children:[Icon(_monitorEnabled?Icons.notifications_active:Icons.notifications_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text(_monitorEnabled?'Background SOS monitoring enabled':'Background SOS alerts',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)))]),
+         const SizedBox(height:8),
+         Text('Uses a free Android foreground service to watch the linked person’s Firestore SOS alerts and show a local notification. It is not a guaranteed emergency service; force-stop, network loss or battery restrictions can interrupt it.',style:TextStyle(fontSize:14,color:navy)),
+         const SizedBox(height:10),
+         SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:_monitorStarting?null:_enableBackgroundAlerts,icon:_monitorStarting?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(_monitorEnabled?Icons.refresh:Icons.notifications_active),label:Text(_monitorStarting?'Enabling…':_monitorEnabled?'Refresh monitoring status':'Enable background SOS alerts'))),
+        ]),
+       ),
        const SizedBox(height:20),Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
        Padding(
