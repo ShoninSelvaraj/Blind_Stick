@@ -131,10 +131,10 @@ class CameraVisionService extends ChangeNotifier {
       status = _modelReady
           ? 'Obstacle detection is set up. Connect to the stick camera when you are ready.'
           : 'Setup didn’t finish. Check your internet connection and try again.';
-    } on PlatformException catch (error) {
+    } on PlatformException {
       _modelReady = false;
       status = 'Obstacle detection could not be set up. Please try again.';
-    } catch (error) {
+    } catch (_) {
       _modelReady = false;
       status = 'Obstacle detection could not be set up. Please try again.';
     } finally {
