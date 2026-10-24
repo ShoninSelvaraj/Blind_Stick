@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -64,7 +65,7 @@ class ProfilePendingPage extends StatelessWidget {
  final String email;const ProfilePendingPage({super.key,required this.email});
  @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
  const Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),const Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
- Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout),label:const Text('Sign out'))
+ Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:signOutSafely,icon:const Icon(Icons.logout),label:const Text('Sign out'))
  ])))));
 }
 
@@ -201,6 +202,17 @@ class ApiService {
    return true;
   } catch (_) { return false; }
  }
+}
+
+Future<void> signOutSafely() async {
+ final user=FirebaseAuth.instance.currentUser;
+ if(user!=null){
+  try{await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('fcmTokens').doc('primary').delete();}catch(_){}
+ }
+ if(stick.connected){
+  try{await stick.setAssistance(false);await stick.disconnect();}catch(_){}
+ }
+ await FirebaseAuth.instance.signOut();
 }
 
 class PairingService {
@@ -412,7 +424,29 @@ class CaregiverPage extends StatefulWidget{
 }
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
- @override void dispose(){codeController.dispose();super.dispose();}
+ StreamSubscription<RemoteMessage>? _foregroundMessages;
+ StreamSubscription<String>? _tokenRefresh;
+ @override void initState(){super.initState();_registerPushToken();_foregroundMessages=FirebaseMessaging.onMessage.listen((message){
+  if(!mounted)return;
+  final title=message.notification?.title??'Saathi update';
+  final body=message.notification?.body??'A new update has arrived.';
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$title: $body'),duration:const Duration(seconds:6)));
+ });}
+ Future<void> _savePushToken(String token)async{
+  await FirebaseFirestore.instance.collection('users').doc(widget.user.uid).collection('fcmTokens').doc('primary').set({'token':token,'platform':'android','updatedAt':FieldValue.serverTimestamp()});
+ }
+ Future<void> _registerPushToken()async{
+  try{
+   final messaging=FirebaseMessaging.instance;
+   await messaging.requestPermission(alert:true,badge:true,sound:true,provisional:false);
+   final token=await messaging.getToken();
+   if(token!=null)await _savePushToken(token);
+   _tokenRefresh=messaging.onTokenRefresh.listen((token){_savePushToken(token);});
+  }catch(_){
+   // Foreground Firestore updates remain available if push setup/permission is unavailable.
+  }
+ }
+ @override void dispose(){codeController.dispose();_foregroundMessages?.cancel();_tokenRefresh?.cancel();super.dispose();}
  Future<void> _pair()async{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
