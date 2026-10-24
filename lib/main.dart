@@ -34,6 +34,9 @@ const red = Color(0xFFB42318);
 const serviceUuid = '7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001';
 const telemetryUuid = '7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001';
 const commandUuid = '7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001';
+const defaultMapTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const defaultGeocoderBaseUrl = 'https://nominatim.openstreetmap.org';
+const defaultFootRouterBaseUrl = 'https://routing.openstreetmap.de/routed-foot/route/v1/driving';
 bool voiceGuidanceEnabled = true;
 final ValueNotifier<double> appTextScale = ValueNotifier<double>(1.0);
 final ValueNotifier<bool> appHighContrast = ValueNotifier<bool>(false);
@@ -436,6 +439,10 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   String? _error;
   StreamSubscription<Position>? _positionSubscription;
   static DateTime? _lastGeocodeRequest;
+  static final Map<String, Map<String, dynamic>> _geocodeCache = {};
+  String _tileUrlTemplate = defaultMapTileUrl;
+  String _geocoderBaseUrl = defaultGeocoderBaseUrl;
+  String _footRouterBaseUrl = defaultFootRouterBaseUrl;
 
   @override
   void initState() {
@@ -445,6 +452,13 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   }
 
   Future<void> _initialize() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _tileUrlTemplate = preferences.getString('map_tiles_url') ?? defaultMapTileUrl;
+      _geocoderBaseUrl = preferences.getString('map_geocoder_url') ?? defaultGeocoderBaseUrl;
+      _footRouterBaseUrl = preferences.getString('map_foot_router_url') ?? defaultFootRouterBaseUrl;
+    });
     final position = await getPosition();
     if (!mounted) return;
     if (position != null) {
@@ -530,32 +544,39 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       _steps = [];
     });
     try {
-      // Nominatim public API policy: user-triggered searches only; no type-ahead.
-      final previous = _lastGeocodeRequest;
-      if (previous != null) {
-        final elapsed = DateTime.now().difference(previous);
-        if (elapsed < const Duration(seconds: 1)) {
-          await Future<void>.delayed(const Duration(seconds: 1) - elapsed);
+      // User-triggered only (never type-ahead); cache repeat searches in this app session.
+      final cacheKey = query.toLowerCase();
+      Map<String, dynamic>? result = _geocodeCache[cacheKey];
+      if (result == null) {
+        final previous = _lastGeocodeRequest;
+        if (previous != null) {
+          final elapsed = DateTime.now().difference(previous);
+          if (elapsed < const Duration(seconds: 1)) {
+            await Future<void>.delayed(const Duration(seconds: 1) - elapsed);
+          }
         }
+        _lastGeocodeRequest = DateTime.now();
+        final base = Uri.parse(_geocoderBaseUrl);
+        final basePath = base.path.replaceAll(RegExp(r'/+$'), '');
+        final uri = base.replace(path: '$basePath/search', queryParameters: {
+          'q': query,
+          'format': 'jsonv2',
+          'limit': '1',
+        });
+        final response = await http.get(uri, headers: {
+          'User-Agent': 'BlindStick Companion/1.0 (+https://github.com/ShoninSelvaraj/Blind_Stick)',
+        }).timeout(const Duration(seconds: 15));
+        if (response.statusCode != 200) {
+          throw StateError('Place search is temporarily unavailable. Try again later.');
+        }
+        final results = jsonDecode(response.body) as List<dynamic>;
+        if (results.isEmpty) {
+          throw StateError('No place found. Try a nearby landmark or full address.');
+        }
+        result = results.first as Map<String, dynamic>;
+        _geocodeCache[cacheKey] = result;
       }
-      _lastGeocodeRequest = DateTime.now();
-      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
-        'q': query,
-        'format': 'jsonv2',
-        'limit': '1',
-      });
-      final response = await http.get(uri, headers: {
-        'User-Agent': 'BlindStick Companion/1.0 (+https://github.com/ShoninSelvaraj/Blind_Stick)',
-      }).timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) {
-        throw StateError('Place search is temporarily unavailable. Try again later.');
-      }
-      final results = jsonDecode(response.body) as List<dynamic>;
-      if (results.isEmpty) {
-        throw StateError('No place found. Try a nearby landmark or full address.');
-      }
-      final result = results.first as Map<String, dynamic>;
-      final latitude = double.tryParse(result['lat']?.toString() ?? '');
+      final latitude = double.tryParse(result['lat']?.toString() ?? '');      final latitude = double.tryParse(result['lat']?.toString() ?? '');
       final longitude = double.tryParse(result['lon']?.toString() ?? '');
       if (latitude == null || longitude == null) {
         throw StateError('The place search returned no usable coordinates.');
@@ -606,16 +627,14 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     if (mounted) setState(() => _position = start);
 
     // OpenStreetMap's community foot-routing instance; no Google Maps SDK or key.
-    final uri = Uri.https(
-      'routing.openstreetmap.de',
-      '/routed-foot/route/v1/driving/${start.longitude},${start.latitude};${target.longitude},${target.latitude}',
-      {
-        'overview': 'full',
-        'geometries': 'geojson',
-        'steps': 'true',
-        'alternatives': 'false',
-      },
-    );
+    final routerBase = Uri.parse(_footRouterBaseUrl);
+    final routePath = '${routerBase.path.replaceAll(RegExp(r'/+$'), '')}/${start.longitude},${start.latitude};${target.longitude},${target.latitude}';
+    final uri = routerBase.replace(path: routePath, queryParameters: {
+      'overview': 'full',
+      'geometries': 'geojson',
+      'steps': 'true',
+      'alternatives': 'false',
+    });
     final response = await http.get(uri, headers: {
       'User-Agent': 'BlindStick Companion/1.0 (+https://github.com/ShoninSelvaraj/Blind_Stick)',
     }).timeout(const Duration(seconds: 20));
@@ -785,7 +804,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
               options: MapOptions(initialCenter: center, initialZoom: _position == null ? 5 : 15),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: _tileUrlTemplate,
                   userAgentPackageName: 'com.vimal.blindstick',
                 ),
                 if (_routePoints.isNotEmpty)
