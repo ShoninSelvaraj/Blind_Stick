@@ -14,7 +14,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geolocator_android/geolocator_android.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -511,8 +510,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       settings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
-        intervalDuration: Duration(seconds: 2),
-        foregroundNotificationConfig: ForegroundNotificationConfig(
+        intervalDuration: const Duration(seconds: 2),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'BlindStick Companion navigation',
           notificationText: 'Spoken walking guidance is active',
           notificationChannelName: 'Walking navigation',
