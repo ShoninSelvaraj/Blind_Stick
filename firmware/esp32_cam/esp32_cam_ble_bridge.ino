@@ -3,10 +3,12 @@
  * Target: AI Thinker ESP32-CAM (classic ESP32), Arduino ESP32 core.
  *
  * IMPORTANT:
- * - This firmware establishes the app's BLE protocol and camera capture.
- * - It does NOT claim to perform AI object/traffic/crowd detection: no trained
- *   model has been supplied. Detection fields are omitted until a real model
- *   is integrated. Never use this prototype as the sole mobility safety aid.
+ * - This firmware provides BLE telemetry, an ESP32-CAM JPEG endpoint, optional
+ *   ultrasonic range measurement and a motor-driver output.
+ * - Object detection/crowd estimate and a cautious traffic-lamp colour estimate
+ *   run on the Android phone with a downloaded quantized TFLite model. They are
+ *   probabilistic prototypes, not safety-certified. Never use this app as the
+ *   sole mobility safety aid.
  * - The board photo has no onboard USB connector. Initial flashing requires a
  *   USB-to-TTL adapter connected to 5V, GND, U0R/U0T and GPIO0-to-GND for
  *   download mode. Disconnect GPIO0 from GND and reset for normal boot.
@@ -256,27 +258,25 @@ void updateSensorsAndHaptics(unsigned long now) {
     }
   }
 
-  bool shouldVibrate = assistanceEnabled &&
-    requestedVibrationUntilMs != 0 &&
-    static_cast<long>(requestedVibrationUntilMs - now) > 0;
   const bool freshDistance = lastDistanceCm >= 0 &&
     now - distanceMeasuredAt < 1500;
-  if (assistanceEnabled && freshDistance) {
+  if (assistanceEnabled && freshDistance &&
+      now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
     if (lastDistanceCm < STOP_DISTANCE_CM) {
-      shouldVibrate = true;
-    } else if (lastDistanceCm < CAUTION_DISTANCE_CM &&
-               now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
-      shouldVibrate = true;
+      // High urgency: repeat a short pulse at a steady cadence.
       requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
       lastMotorPulseMs = now;
-    }
-    if (lastDistanceCm < STOP_DISTANCE_CM &&
-        now - lastMotorPulseMs >= MOTOR_REPEAT_MS) {
+    } else if (lastDistanceCm < CAUTION_DISTANCE_CM) {
+      // Lower urgency: same pulse duration, with a slower cadence.
       requestedVibrationUntilMs = now + MOTOR_PULSE_MS;
       lastMotorPulseMs = now;
     }
   }
-  digitalWrite(VIBRATION_DRIVER_GPIO, shouldVibrate ? HIGH : LOW);
+
+  const bool commandPulseActive = assistanceEnabled &&
+    requestedVibrationUntilMs != 0 &&
+    static_cast<long>(requestedVibrationUntilMs - now) > 0;
+  digitalWrite(VIBRATION_DRIVER_GPIO, commandPulseActive ? HIGH : LOW);
 }
 
 void setup() {
