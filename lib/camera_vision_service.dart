@@ -102,13 +102,20 @@ class CameraVisionService extends ChangeNotifier {
     );
     try {
       _modelReady = await _channel.invokeMethod<bool>('visionModelReady') ?? false;
-      status = _modelReady
-          ? 'Obstacle detection is ready'
-          : 'Obstacle detection is included with the app. Tap Set up obstacle detection to initialize it.';
+      if (_modelReady) {
+        status = 'Obstacle detection is ready';
+      } else {
+        // Models are packaged in the APK. Prepare them locally in the background so
+        // the person using the stick does not need to find or download model files.
+        status = 'Preparing built-in obstacle detection…';
+      }
     } catch (_) {
       status = 'Obstacle detection is unavailable in this app version. Please update the app.';
     }
     notifyListeners();
+    if (!_modelReady && status.startsWith('Preparing built-in')) {
+      unawaited(prepareModel());
+    }
   }
 
   String _normalizeEndpoint(String value) =>
