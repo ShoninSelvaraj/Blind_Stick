@@ -112,7 +112,7 @@ service cloud.firestore {
    match /alerts/{alertId} {
     allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
     allow create: if patientOwner(patientUid) &&
-     request.resource.data.type in ['sos','system','obstacle','device_offline'] &&
+     request.resource.data.type in ['sos','system','obstacle','device_offline','vision'] &&
      request.resource.data.message is string &&
      request.resource.data.message.size() <= 500 &&
      request.resource.data.createdAt == request.time &&
