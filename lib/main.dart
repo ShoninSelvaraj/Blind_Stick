@@ -860,7 +860,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       settings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 5,
-        intervalDuration: Duration(seconds: 2),
+        intervalDuration: const Duration(seconds: 2),
       );
     }
     if (!mounted) return false;
@@ -1296,10 +1296,12 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     setState(() => _startingGuidance = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        if (mounted) setState(() {
-          _status = 'Location is turned off';
-          _error = 'Turn on Location in Android quick settings, then tap Start navigation again.';
-        });
+        if (mounted) {
+          setState(() {
+            _status = 'Location is turned off';
+            _error = 'Turn on Location in Android quick settings, then tap Start navigation again.';
+          });
+        }
         await _announceSafely('Location is turned off. Turn it on before starting navigation.');
         return;
       }
@@ -1310,12 +1312,14 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        if (mounted) setState(() {
-          _status = 'Location permission needed';
-          _error = permission == LocationPermission.deniedForever
-              ? 'Location permission is blocked. Open Android Settings and allow location while using the app.'
-              : 'Allow location while using the app to start navigation.';
-        });
+        if (mounted) {
+          setState(() {
+            _status = 'Location permission needed';
+            _error = permission == LocationPermission.deniedForever
+                ? 'Location permission is blocked. Open Android Settings and allow location while using the app.'
+                : 'Allow location while using the app to start navigation.';
+          });
+        }
         await _announceSafely('Location permission is needed to start navigation.');
         return;
       }
@@ -1347,18 +1351,22 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         await _announceSafely('The route has no intermediate turns. Follow the map only if it matches your surroundings, and stop if unsure.');
       }
     } on TimeoutException {
-      if (mounted) setState(() {
-        _guidance = false;
-        _status = 'Waiting for GPS';
-        _error = 'GPS did not get a fix within 15 seconds. Wait somewhere safe and try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _guidance = false;
+          _status = 'Waiting for GPS';
+          _error = 'GPS did not get a fix within 15 seconds. Wait somewhere safe and try again.';
+        });
+      }
       await _announceSafely('GPS has not fixed your location yet. Wait in a safe place and try again.');
     } catch (_) {
-      if (mounted) setState(() {
-        _guidance = false;
-        _status = 'Could not start navigation';
-        _error = 'Navigation could not start. Check that GPS is on and location permission is allowed, then try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _guidance = false;
+          _status = 'Could not start navigation';
+          _error = 'Navigation could not start. Check that GPS is on and location permission is allowed, then try again.';
+        });
+      }
       await _announceSafely('Navigation could not start. Check your GPS and location permission.');
     } finally {
       if (mounted) setState(() => _startingGuidance = false);
@@ -1575,7 +1583,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(18, 15, 18, 22),
                   children: [
-                    Center(child: Container(width: 38, height: 4, decoration: BoxDecoration(color: Color(0xFFCBD5E1), borderRadius: BorderRadius.circular(4)))),
+                    Center(child: Container(width: 38, height: 4, decoration: const BoxDecoration(color: Color(0xFFCBD5E1), borderRadius: BorderRadius.all(Radius.circular(4))))),
                     const SizedBox(height: 14),
                     Semantics(
                       liveRegion: true,
