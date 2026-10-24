@@ -1,34 +1,32 @@
 # Saathi — accessible blind-stick companion
 
-Flutter Android companion app for the Saathi blind-stick prototype. The app uses Firebase Email/Password Authentication, Cloud Firestore, BLE, Android GPS permissions, spoken feedback and external walking navigation.
+Flutter Android app for the Saathi blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
 
-## User experience
+## Respectful onboarding
 
-The registration screen asks what a person wants to do, not whether they are blind:
+Registration asks **what you want to do with Saathi**, not how to describe yourself:
 
 - **Use my Saathi stick** — navigation, device status, safety alerts and SOS.
-- **Support someone I care about** — connect only after the person shares a one-time pairing code.
+- **Support someone I care about** — view updates only after the other person chooses to share access.
 
-The app supports TalkBack through standard accessible controls and semantic labels, spoken safety guidance, a text-size setting, high-contrast UI, and large primary actions. There are no shared demo credentials.
+The app uses clear wording, TalkBack-compatible controls, spoken pairing-code output, large primary actions, high contrast, and a saved text-size control (100–160%). Voice guidance can be turned off separately.
 
-## Firebase setup
+## Firebase configuration
 
-This project is configured for Firebase project `blindstick001` and Android package `com.vimal.blindstick`. Its client configuration lives at `android/app/google-services.json`.
+Project: `blindstick001`, Android package: `com.vimal.blindstick`. The Firebase Android config is `android/app/google-services.json`.
 
-In Firebase Console:
-1. Enable **Authentication → Sign-in method → Email/Password**.
-2. Create/enable the Firestore database.
-3. Deploy the repository rules (never use open/test rules in production):
+In Firebase Console, enable **Authentication → Sign-in method → Email/Password** and create/enable your Firestore database. Deploy the rules and server function when you're ready:
 
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase deploy --only firestore:rules
+firebase use blindstick001
+firebase deploy --only firestore:rules,functions
 ```
 
-The included `.firebaserc` targets `blindstick001`. Confirm you are logged into the correct Firebase account before deploying.
+The deployment needs an eligible Firebase/Google Cloud billing setup for Cloud Functions. Confirm that the active Firebase CLI account and target project are correct before deployment.
 
-Build/run:
+To build/run the mobile app:
 
 ```bash
 git pull origin main
@@ -36,59 +34,72 @@ flutter clean
 flutter pub get
 flutter analyze
 flutter run
+flutter build apk --release
 ```
 
-GitHub Actions runs `flutter analyze` and builds a debug APK on pushes to `main`.
+The repository's GitHub Actions workflow runs Dart analysis and a debug Android build on pushes to `main`.
 
-## Account creation and access
+## Role and pairing flow
 
-Users choose their intended use during account creation. The selected role is written once to `users/{uid}`; client-side role changes are denied. This is appropriate for choosing the app experience, but it is not a strong identity check—never treat the role alone as proof of a person's real-world status.
+Users choose their app role during registration. This choice changes the experience; it is not identity verification.
 
-### Patient / stick owner
-On first sign-in, the app creates `patients/{patientUid}` with the patient's Firebase Auth UID as owner. Under **Connect someone you trust**, the patient can generate an eight-digit pairing code. It expires after 10 minutes and can be redeemed once. It is shown on-screen and can be spoken or copied.
+### Person using the stick
+1. Create an account and choose **Use my Saathi stick**.
+2. The app creates `patients/{yourFirebaseUid}`.
+3. Under **Connect someone you trust**, create a pairing code. It is 8 digits, expires after 10 minutes, can be used once, and can be copied or spoken.
+4. Share the code only with someone you want to authorize.
 
-### Caregiver
-Choose **Support someone I care about** when creating an account, then enter the code the patient shares. The app atomically claims the code and links the caregiver to the patient. The caregiver dashboard subscribes to Firestore for live location/status updates and new alerts while open. Each patient record allows at most **two linked caregivers**. This MVP allows each caregiver account to pair with one patient at a time.
+### Person supporting someone
+1. Create an account and choose **Support someone I care about**.
+2. Enter the pairing code the other person shared.
+3. The app atomically redeems it and links the accounts.
+4. The caregiver screen streams the linked patient's location, device status and alerts from Firestore.
 
-### Where the data lives
+Each patient can have at most **two linked caregivers**. This version lets a caregiver account connect to one patient at a time. A patient controls whom to pair with by deciding whether to share the code; an account that merely selects the caregiver role cannot read anyone's data.
 
-- `users/{uid}`: minimal account profile and selected app role; each user can read only their own profile.
-- `patients/{patientUid}`: owner UID, display name, caregiver UID list, latest shared location and device status.
-- `patients/{patientUid}/locations/{locationId}`: consent-based location history.
-- `patients/{patientUid}/alerts/{alertId}`: SOS and device/system events.
-- `pairingCodes/{8 digits}`: short-lived, single-use pairing records; individual gets only, no listing.
-- `pairingClaims/{caregiverUid}`: the caregiver's own link record, used by the app to find their linked patient.
+## Firestore data and security
 
-### Security properties and limits
+- `users/{uid}`: personal profile and self-selected role; users can read only their own profile.
+- `users/{uid}/fcmTokens/primary`: that signed-in user's FCM token; only that account can read/write it.
+- `patients/{patientUid}`: patient owner UID, display name, caregiver UID list, latest shared location and device status.
+- `patients/{patientUid}/locations/{locationId}`: location history. Only the patient can write; patient and linked caregivers can read.
+- `patients/{patientUid}/alerts/{alertId}`: SOS and system events. Only the patient can create; patient and linked caregivers can read.
+- `pairingCodes/{code}`: single-use, expiring codes; listing is denied.
+- `pairingClaims/{caregiverUid}`: one active pairing claim per caregiver; accessible only to that caregiver.
 
-- Firestore rules require sign-in; no collection is publicly readable.
-- Role is set at account creation and cannot be edited from the app.
-- A patient can share only with caregivers who redeem their live code.
-- Codes expire, are single-use and are redeemed in an atomic Firestore transaction.
-- Patient/caregiver access to patient documents, locations and alerts is checked by UID; the cap is two linked caregivers.
-- Only the patient can write location and SOS events for their patient record. Caregiver access is read-only.
-- Users cannot list pairing codes or pairing claims.
-- Firestore rules do not secure BLE itself. The ESP32 firmware still needs BLE bonding/authentication or another device allowlist before preventing arbitrary nearby Bluetooth clients from connecting.
-
-Review `firestore.rules` before deployment and test access with two linked accounts plus a third unrelated account. Firebase project owners/admins can bypass client rules through trusted Admin SDKs/console access, so restrict project admin access carefully.
+The deployed `firestore.rules` limits the caregiver list to two and ties reads to Auth UIDs. Test the rules with a patient, two linked caregivers, and an unrelated third account before field use. Firebase project owners/admins can still access data through privileged administrative tools, so restrict console/admin access.
 
 ## Navigation
 
-The app hands off immediately to native Google Maps walking navigation (`google.navigation`), then falls back to the web directions URL if needed. Maps performs live GPS updates, route calculation, rerouting and turn-by-turn voice guidance. This avoids blocking the app on an extra GPS lookup before directions open. Actual latency depends on the phone, GPS signal, Maps availability and network; no app can promise zero lag. Download offline maps in Maps in advance if connectivity may be unreliable.
+The app opens Google Maps walking navigation immediately with the destination, using the native Maps navigation URI and falling back to a web directions link if needed. Maps itself handles live GPS, turn-by-turn voice guidance and rerouting. This avoids waiting for an additional app-side location fix before opening directions, but **zero lag cannot be guaranteed**: GPS availability, network quality, phone performance and Maps availability still matter. Download offline maps in Google Maps ahead of time for areas with unreliable connectivity.
 
-## BLE and physical hardware
+## Location sharing and SOS alerts
 
-Service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
+Location sharing is opt-in. While Saathi remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
+
+An SOS is first saved in `patients/{patientUid}/alerts`. If the Cloud Function has been deployed and the caregiver has a valid FCM token, the function attempts a push notification for the linked caregivers only. The alert records delivery-attempt status/counts. FCM cannot guarantee that a phone receives the message or that the person sees it; notification permissions, battery restrictions and connectivity matter. The patient is warned to use their usual emergency contact method as well.
+
+To deploy notifications, use the root `firebase.json` and `functions/index.js`:
+
+```bash
+firebase deploy --only firestore:rules,functions
+```
+
+Check `functions/README.md` for deployment notes. Do not treat an accepted Firestore write as proof an emergency responder was contacted.
+
+## BLE and the photographed ESP32-CAM board
+
+BLE service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
 
 - Telemetry Notify: `7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001`
 - Command Write: `7b6e0003-7d9a-4b5c-8f4d-6e9a0b000001`
 
-The app requires newline-delimited UTF-8 JSON telemetry and will not fabricate distance/object/traffic/crowd results. The repository includes a starter ESP32-CAM BLE bridge, but no trained computer-vision model has been provided. The starter firmware captures camera frames and reports camera/model status; object detection, traffic-light recognition and crowd classification require real model inference. Ultrasonic distance, battery sensing and stick-mounted vibration require corresponding hardware and confirmed wiring. The photographed ESP32-CAM has no built-in USB port; initial programming commonly uses a USB-to-TTL adapter. Follow `firmware/esp32_cam/README.md` and confirm board revision before wiring.
+The repository includes a starter camera/BLE bridge in `firmware/esp32_cam/esp32_cam_ble_bridge.ino`. It initializes the camera, captures frames and sends honest device status. It does **not** contain a trained model for object detection, traffic-light recognition or crowd classification. The app displays that status instead of inventing predictions.
 
-## SOS delivery
+Ultrasonic distance, battery telemetry and a physical vibration motor also need the actual sensors, confirmed pin assignments and driver circuit. The image appears to show an ESP32-CAM-style board with no USB port; initial programming typically needs a USB-to-TTL adapter. Follow `firmware/esp32_cam/README.md` and confirm the exact board revision before wiring. This project has not been physically tested against your hardware.
 
-SOS is written to Firestore and appears as a live alert in an open, authorized caregiver dashboard. Firebase Authentication + Firestore alone do **not** guarantee a background push notification or emergency dispatch. For unattended notifications, configure Firebase Cloud Messaging and a trusted Cloud Function/server-side delivery provider, including delivery receipts and retries. A saved alert does not mean a caregiver has seen it.
+## Verification boundary
 
-## Safety boundary
+GitHub Actions checks that Dart analysis is clean and the Android debug app builds. Those automated checks do not verify BLE pairing, GPS accuracy, physical sensors, camera AI, notification delivery, or accessibility with real users. The stick still needs BLE bonding/owner authorization; Firestore rules do not protect the Bluetooth radio itself.
 
-Location sharing is opt-in and currently runs while the patient screen is open; it is not a guaranteed background location service. Physical validation, screen-reader testing with intended users, Firestore rules tests, secure BLE pairing, AI-model validation and emergency-notification tests are required before real-world reliance. Saathi is a prototype companion, not a certified mobility aid; do not use it as the sole method for obstacle avoidance or crossing decisions.
+Saathi is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
