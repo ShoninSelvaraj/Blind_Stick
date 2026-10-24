@@ -228,7 +228,7 @@ class CameraVisionService extends ChangeNotifier {
       detections = rawDetections.whereType<Map>().map((item) {
         return item.map((key, value) => MapEntry(key.toString(), value));
       }).toList(growable: false);
-      personCount = ((result['personCount'] as num?)?.toInt() ?? 0).clamp(0, 100);
+      personCount = ((result['personCount'] as num?)?.toInt() ?? 0).clamp(0, 100).toInt();
       _personCountSamples.add(personCount);
       if (_personCountSamples.length > 5) _personCountSamples.removeAt(0);
       final sortedPersonCounts = List<int>.of(_personCountSamples)..sort();
