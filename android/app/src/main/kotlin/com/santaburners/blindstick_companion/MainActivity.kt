@@ -108,7 +108,10 @@ class MainActivity : FlutterActivity() {
                     }
                     "visionModelReady" -> result.success(
                         modelFile().let { it.exists() && it.length() > 100_000 } &&
-                        pedestrianSignalModelFile().let { it.exists() && it.length() > 2_000_000 }
+                        pedestrianSignalModelFile().let {
+                            it.exists() && it.length() > 2_000_000 &&
+                                runCatching { sha256(it) == pedestrianSignalSha256 }.getOrDefault(false)
+                        }
                     )
                     "prepareVisionModel" -> worker.execute {
                         try {
