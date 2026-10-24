@@ -438,7 +438,7 @@ class PairingService {
   for(var attempt=0;attempt<6;attempt++){
    final code=List.generate(8,(_)=>_random.nextInt(10)).join();
    final ref=_db.collection('pairingCodes').doc(code);
-   final expires=DateTime.now().add(const Duration(minutes:10));
+   final expires=DateTime.now().add(const Duration(minutes:9));
    final created=await _db.runTransaction<bool>((tx)async{
     final existing=await tx.get(ref);
     if(existing.exists)return false;
