@@ -1,3 +1,6 @@
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+
 plugins {
     id "com.android.application"
     id "kotlin-android"
@@ -5,9 +8,6 @@ plugins {
     id "com.google.gms.google-services"
 }
 
-
-import java.security.MessageDigest
-import java.util.zip.ZipFile
 
 // Bundle both inference models into the APK during the build. End users should
 // never have to download AI models from inside the app.
