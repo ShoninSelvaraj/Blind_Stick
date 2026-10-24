@@ -36,7 +36,7 @@ class CameraVisionService extends ChangeNotifier {
   String _lastLoggedCueKey = '';
 
   String endpoint = defaultEndpoint;
-  String status = 'On-device AI model not prepared';
+  String status = 'Obstacle detection is getting ready';
   String crowdLevel = 'unknown';
   String trafficState = 'not_detected';
   String pedestrianSignalState = 'unknown';
@@ -103,10 +103,10 @@ class CameraVisionService extends ChangeNotifier {
     try {
       _modelReady = await _channel.invokeMethod<bool>('visionModelReady') ?? false;
       status = _modelReady
-          ? 'On-device AI model ready'
-          : 'AI model not downloaded yet. Prepare it while internet is available.';
+          ? 'Obstacle detection is ready'
+          : 'Obstacle detection needs a one-time setup. Connect to the internet to finish preparing it.';
     } catch (_) {
-      status = 'On-device AI runtime is unavailable in this build';
+      status = 'Obstacle detection is unavailable in this app version. Please update the app.';
     }
     notifyListeners();
   }
@@ -116,12 +116,12 @@ class CameraVisionService extends ChangeNotifier {
 
   Future<void> prepareModel() async {
     if (_modelReady || preparing) {
-      if (_modelReady) status = 'On-device AI model already downloaded';
+      if (_modelReady) status = 'Obstacle detection is already set up';
       notifyListeners();
       return;
     }
     preparing = true;
-    status = 'Downloading the one-time AI model. Keep internet available…';
+    status = 'Setting up obstacle detection. Keep the internet connected for a moment…';
     notifyListeners();
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>(
@@ -129,14 +129,14 @@ class CameraVisionService extends ChangeNotifier {
       );
       _modelReady = result?['ready'] == true;
       status = _modelReady
-          ? 'On-device AI ready. Connect the stick camera Wi-Fi to begin.'
-          : 'Model download did not complete. Reconnect to the internet and retry.';
+          ? 'Obstacle detection is set up. Connect to the stick camera when you are ready.'
+          : 'Setup didn’t finish. Check your internet connection and try again.';
     } on PlatformException catch (error) {
       _modelReady = false;
-      status = 'AI setup failed: ${error.message ?? error.code}';
+      status = 'Obstacle detection could not be set up. Please try again.';
     } catch (error) {
       _modelReady = false;
-      status = 'AI setup failed: $error';
+      status = 'Obstacle detection could not be set up. Please try again.';
     } finally {
       preparing = false;
       notifyListeners();
@@ -228,7 +228,7 @@ class CameraVisionService extends ChangeNotifier {
   Future<void> start() async {
     if (_running) return;
     if (!_modelReady) {
-      status = 'Prepare the on-device AI model while internet is available first.';
+      status = 'Obstacle detection needs its first-time setup. Connect to the internet and tap Set up obstacle detection.';
       notifyListeners();
       return;
     }
@@ -345,7 +345,7 @@ class CameraVisionService extends ChangeNotifier {
       if (_failedFrames == 1 || _failedFrames % 4 == 0) {
         _cameraReachable = false;
         status =
-            'Vision frame unavailable: ${error.toString().replaceFirst('Bad state: ', '')}';
+            'Camera updates are temporarily unavailable. Check the camera connection and try again.';
       }
     } finally {
       _processing = false;
