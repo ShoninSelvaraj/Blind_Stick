@@ -1264,7 +1264,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    padding:const EdgeInsets.all(18),
    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0xFFDCE5E9))),
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
+    Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
     const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
@@ -1587,11 +1587,11 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    Container(
     padding:const EdgeInsets.all(20),
     decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(22),border:Border.all(color:red,width:2)),
-    child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     Icon(Icons.health_and_safety_outlined,color:red,size:36),
-     SizedBox(height:12),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     const Icon(Icons.health_and_safety_outlined,color:red,size:36),
+     const SizedBox(height:12),
      Text('Need help?',style:TextStyle(color:navy,fontSize:25,fontWeight:FontWeight.w900)),
-     SizedBox(height:8),
+     const SizedBox(height:8),
      Text('Save an SOS alert and, if needed, open an SMS message to contact someone you trust.',style:TextStyle(color:navy,fontSize:16)),
     ]),
    ),
