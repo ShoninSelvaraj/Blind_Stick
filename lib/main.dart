@@ -1754,12 +1754,14 @@ class _SettingsPageState extends State<SettingsPage>{
  final tileUrlController=TextEditingController(text:defaultMapTileUrl);
  final geocoderUrlController=TextEditingController(text:defaultGeocoderBaseUrl);
  final footRouterUrlController=TextEditingController(text:defaultFootRouterBaseUrl);
+ final cameraEndpointController=TextEditingController(text:CameraVisionService.defaultEndpoint);
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{
   final prefs=await SharedPreferences.getInstance();if(!mounted)return;
   tileUrlController.text=prefs.getString('map_tiles_url')??defaultMapTileUrl;
   geocoderUrlController.text=prefs.getString('map_geocoder_url')??defaultGeocoderBaseUrl;
   footRouterUrlController.text=prefs.getString('map_foot_router_url')??defaultFootRouterBaseUrl;
+  cameraEndpointController.text=prefs.getString('camera_base_url')??CameraVisionService.defaultEndpoint;
   setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; highContrast=prefs.getBool('high_contrast')??false; });
   voiceGuidanceEnabled=voice;appTextScale.value=textScale;appHighContrast.value=highContrast;
  }
@@ -1774,6 +1776,14 @@ class _SettingsPageState extends State<SettingsPage>{
  Future<void> _saveHighContrast(bool value)async{
   setState(()=>highContrast=value);appHighContrast.value=value;
   final prefs=await SharedPreferences.getInstance();await prefs.setBool('high_contrast',value);
+ }
+ Future<void> _saveCameraEndpoint() async {
+  try {
+   await vision.saveEndpoint(cameraEndpointController.text);
+   if(mounted)setState(()=>saved='Camera endpoint saved: ${vision.endpoint}');
+  } on FormatException catch(error) {
+   if(mounted)setState(()=>saved=error.message);
+  }
  }
  Future<void> _saveMapServices() async {
   final tiles=tileUrlController.text.trim();
@@ -1792,7 +1802,7 @@ class _SettingsPageState extends State<SettingsPage>{
   if(mounted)setState(()=>saved='Map service settings saved on this phone. Reopen navigation to use them.');
  }
  @override void dispose(){
-  tileUrlController.dispose();geocoderUrlController.dispose();footRouterUrlController.dispose();super.dispose();
+  tileUrlController.dispose();geocoderUrlController.dispose();footRouterUrlController.dispose();cameraEndpointController.dispose();super.dispose();
  }
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
@@ -1809,6 +1819,18 @@ class _SettingsPageState extends State<SettingsPage>{
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
    const SizedBox(height:18),
+   ExpansionTile(
+    title:const Text('Stick camera connection',style:TextStyle(fontWeight:FontWeight.w800)),
+    subtitle:const Text('Local Wi-Fi link to the ESP32-CAM'),
+    children:[
+     TextField(controller:cameraEndpointController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Camera base URL',helperText:'Default: http://192.168.4.1')),
+     const SizedBox(height:8),
+     SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_saveCameraEndpoint,icon:const Icon(Icons.save_outlined),label:const Text('Save camera endpoint'))),
+     const SizedBox(height:8),
+     SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:vision.checkCamera,icon:const Icon(Icons.wifi_tethering_outlined),label:const Text('Test camera connection'))),
+     const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('Download the AI model before switching to the camera Wi-Fi. The default password is for development only; change it before public use.',style:TextStyle(color:Color(0xFF59697B)))),
+    ],
+   ),
    ExpansionTile(
     title:const Text('Map services (advanced)',style:TextStyle(fontWeight:FontWeight.w800)),
     subtitle:const Text('Change map/search/routing servers without updating the app'),
