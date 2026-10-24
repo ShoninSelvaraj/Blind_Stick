@@ -288,6 +288,7 @@ class StickTelemetry {
  String detectionStatus='waiting_for_device';
  bool? cameraReady;
  bool? cameraFrameAvailable;
+ bool? deviceAssistance;
  DateTime? receivedAt;
  DateTime? distanceReceivedAt;
  String rangeSensorStatus='unknown';
@@ -335,6 +336,7 @@ class StickTelemetry {
   detectionStatus=(j['detection_status']??'waiting_for_device').toString();
   cameraReady = j['camera_ready'] is bool ? j['camera_ready'] as bool : null;
   cameraFrameAvailable = j['camera_frame_available'] is bool ? j['camera_frame_available'] as bool : null;
+  deviceAssistance = j['assistance'] is bool ? j['assistance'] as bool : null;
   receivedAt=DateTime.now();
  }
 }
@@ -578,7 +580,11 @@ class BleStickService extends ChangeNotifier {
      continue;
     }
     telemetry.fromJson(decoded);
-    lastError=null;
+    if(telemetry.deviceAssistance!=null && telemetry.deviceAssistance!=assistance){
+     lastError='Stick assistance state does not match the app. Stop safely and reconnect/check the firmware.';
+    }else{
+     lastError=null;
+    }
     _processSafety();
    }catch(_){
     lastError='Unreadable or truncated data received from stick. Check firmware packet format and BLE MTU.';
@@ -600,7 +606,25 @@ class BleStickService extends ChangeNotifier {
   if(warning.isEmpty)_lastWarning='';
  }
  Future<void> _command(Map<String,dynamic> cmd)async{if(!connected||commandChar==null)return;final bytes=utf8.encode('${jsonEncode(cmd)}\n');await commandChar!.write(bytes,withoutResponse:commandChar!.properties.writeWithoutResponse&&!commandChar!.properties.write);}
- Future<void> setAssistance(bool on)async{assistance=on;await _command({'cmd':on?'start':'stop'});_event(on?'Assistance started':'Assistance paused');if(on)_speak('Assistance started. Stay aware of your surroundings.');notifyListeners();}
+ Future<void> setAssistance(bool on)async{
+  if(!connected||commandChar==null){
+   lastError='Connect to the stick before changing assistance mode.';
+   notifyListeners();
+   return;
+  }
+  final previous=assistance;
+  try{
+   await _command({'cmd':on?'start':'stop'});
+   assistance=on;
+   lastError=null;
+   _event(on?'Assistance started':'Assistance paused');
+   if(on)_speak('Assistance started. Stay aware of your surroundings.');
+  }catch(e){
+   assistance=previous;
+   lastError='Could not send the assistance command to the stick: ${e.toString().replaceFirst('Exception: ','')}';
+  }
+  notifyListeners();
+ }
  Future<void> pulseVibration({int durationMs=180})async{if(!connected||!assistance||commandChar==null)return;try{await _command({'cmd':'vibrate','duration_ms':durationMs});}catch(_){}}
  Future<void> _speak(String s)async{if(!voiceGuidanceEnabled)return;await tts.stop();await tts.speak(s);}
  Future<void> announce(String s)=>_speak(s);
