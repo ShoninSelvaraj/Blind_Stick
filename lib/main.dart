@@ -190,14 +190,18 @@ class StickTelemetry {
  bool get urgent=>distanceCm!=null&&distanceCm!<35;
  bool get caution=>distanceCm!=null&&distanceCm!<90;
  void fromJson(Map<String,dynamic> j){
-  final d=j['distance_cm']??j['distanceCm']??j['distance']; if(d is num)distanceCm=d.toDouble();
-  object=(j['object']??j['detected_object']??j['label']??object).toString(); signal=(j['signal']??signal).toString();
-  final b=j['battery']??j['battery_percent']; if(b is num)battery=b.toInt();
-  if(j['traffic_walk'] is bool)trafficWalk=j['traffic_walk'];
-  if(j['crowd']!=null)crowd=j['crowd'].toString();
-  if(j['detection_status']!=null)detectionStatus=j['detection_status'].toString();
-  if(j['camera_ready'] is bool)cameraReady=j['camera_ready'];
-  if(j['camera_frame_available'] is bool)cameraFrameAvailable=j['camera_frame_available'];
+  final d=j['distance_cm']??j['distanceCm']??j['distance'];
+  distanceCm=d is num?d.toDouble():null;
+  final detected=j['object']??j['detected_object']??j['label'];
+  object=detected?.toString()??'Waiting for device data';
+  signal=(j['signal']??'unknown').toString();
+  final b=j['battery']??j['battery_percent'];
+  battery=b is num?b.toInt():null;
+  trafficWalk=j['traffic_walk'] is bool?j['traffic_walk'] as bool?:null;
+  crowd=(j['crowd']??'unknown').toString();
+  detectionStatus=(j['detection_status']??'waiting_for_device').toString();
+  cameraReady=j['camera_ready'] is bool?j['camera_ready'] as bool?:null;
+  cameraFrameAvailable=j['camera_frame_available'] is bool?j['camera_frame_available'] as bool?:null;
   receivedAt=DateTime.now();
  }
 }
