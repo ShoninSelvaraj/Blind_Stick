@@ -576,7 +576,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         result = results.first as Map<String, dynamic>;
         _geocodeCache[cacheKey] = result;
       }
-      final latitude = double.tryParse(result['lat']?.toString() ?? '');      final latitude = double.tryParse(result['lat']?.toString() ?? '');
+      final latitude = double.tryParse(result['lat']?.toString() ?? '');
       final longitude = double.tryParse(result['lon']?.toString() ?? '');
       if (latitude == null || longitude == null) {
         throw StateError('The place search returned no usable coordinates.');
