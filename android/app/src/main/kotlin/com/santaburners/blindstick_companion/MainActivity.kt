@@ -455,9 +455,28 @@ class MainActivity : FlutterActivity() {
             throw IllegalStateException("Unexpected pedestrian-signal model output shape: ${outputShape.contentToString()}")
         }
         val anchors = outputShape[2]
-        val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
-        val pixels = IntArray(width * height)
-        resized.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        // Match the upstream Ultralytics preprocessing: keep the camera aspect ratio
+        // and pad to a square instead of stretching a 4:3 frame into 1:1.
+        val scale = min(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
+        val scaledWidth = (bitmap.width * scale).roundToInt().coerceIn(1, width)
+        val scaledHeight = (bitmap.height * scale).roundToInt().coerceIn(1, height)
+        val padLeft = (width - scaledWidth) / 2
+        val padTop = (height - scaledHeight) / 2
+        val resized = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
+        val resizedPixels = IntArray(scaledWidth * scaledHeight)
+        resized.getPixels(resizedPixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
+        val pixels = IntArray(width * height) { android.graphics.Color.rgb(114, 114, 114) }
+        for (row in 0 until scaledHeight) {
+            System.arraycopy(
+                resizedPixels,
+                row * scaledWidth,
+                pixels,
+                (row + padTop) * width + padLeft,
+                scaledWidth
+            )
+        }
+
         val input = ByteBuffer.allocateDirect(inputTensor.numBytes()).order(ByteOrder.nativeOrder())
         val inputQuant = inputTensor.quantizationParams()
         for (pixel in pixels) {
@@ -468,8 +487,8 @@ class MainActivity : FlutterActivity() {
                     DataType.FLOAT32 -> input.putFloat(normal)
                     DataType.UINT8 -> input.put(channel.toByte())
                     DataType.INT8 -> {
-                        val scale = if (inputQuant.scale > 0f) inputQuant.scale else (1f / 255f)
-                        input.put(((normal / scale + inputQuant.zeroPoint).roundToInt()).coerceIn(-128, 127).toByte())
+                        val qScale = if (inputQuant.scale > 0f) inputQuant.scale else (1f / 255f)
+                        input.put(((normal / qScale + inputQuant.zeroPoint).roundToInt()).coerceIn(-128, 127).toByte())
                     }
                     else -> throw IllegalStateException("Unsupported signal-model input type: ${inputTensor.dataType()}")
                 }
@@ -500,7 +519,7 @@ class MainActivity : FlutterActivity() {
         for (anchor in 0 until anchors) {
             var classIndex = -1
             var bestScore = 0f
-            for (classOffset in 0 until labels.size) {
+            for (classOffset in labels.indices) {
                 val score = value(4 + classOffset, anchor)
                 if (score > bestScore) {
                     bestScore = score
@@ -508,18 +527,31 @@ class MainActivity : FlutterActivity() {
                 }
             }
             if (classIndex !in labels.indices || bestScore < 0.38f) continue
+
             val cxRaw = value(0, anchor)
             val cyRaw = value(1, anchor)
             val widthRaw = value(2, anchor)
             val heightRaw = value(3, anchor)
-            val cx = if (cxRaw > 1f) cxRaw / width else cxRaw
-            val cy = if (cyRaw > 1f) cyRaw / height else cyRaw
-            val boxWidth = if (widthRaw > 1f) widthRaw / width else widthRaw
-            val boxHeight = if (heightRaw > 1f) heightRaw / height else heightRaw
-            val left = (cx - boxWidth / 2f).coerceIn(0f, 1f)
-            val top = (cy - boxHeight / 2f).coerceIn(0f, 1f)
-            val right = (cx + boxWidth / 2f).coerceIn(0f, 1f)
-            val bottom = (cy + boxHeight / 2f).coerceIn(0f, 1f)
+            // The upstream parser treats the four box values as one coordinate unit:
+            // if any are pixels, divide all four by the input dimensions.
+            val coordinatesArePixels =
+                cxRaw > 1f || cyRaw > 1f || widthRaw > 1f || heightRaw > 1f
+            val cx = if (coordinatesArePixels) cxRaw / width else cxRaw
+            val cy = if (coordinatesArePixels) cyRaw / height else cyRaw
+            val boxWidth = if (coordinatesArePixels) widthRaw / width else widthRaw
+            val boxHeight = if (coordinatesArePixels) heightRaw / height else heightRaw
+
+            val squareLeft = cx - boxWidth / 2f
+            val squareTop = cy - boxHeight / 2f
+            val squareRight = cx + boxWidth / 2f
+            val squareBottom = cy + boxHeight / 2f
+
+            // Remove the letterbox padding and map the box to normalized coordinates
+            // in the original camera image. Invalid/padding-only boxes are discarded.
+            val left = (((squareLeft * width) - padLeft) / scale / bitmap.width).coerceIn(0f, 1f)
+            val top = (((squareTop * height) - padTop) / scale / bitmap.height).coerceIn(0f, 1f)
+            val right = (((squareRight * width) - padLeft) / scale / bitmap.width).coerceIn(0f, 1f)
+            val bottom = (((squareBottom * height) - padTop) / scale / bitmap.height).coerceIn(0f, 1f)
             if (right <= left || bottom <= top) continue
             candidates.add(SignalCandidate(labels[classIndex], bestScore, left, top, right, bottom))
         }
