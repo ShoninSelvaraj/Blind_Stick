@@ -61,7 +61,7 @@ class ProfilePendingPage extends StatelessWidget {
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
 class _LoginPageState extends State<LoginPage> {
- final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();bool hide=true,createAccount=false,busy=false;String? error,info;
+ final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();bool hide=true,createAccount=false,busy=false;Role selectedRole=Role.patient;String? error,info;
  @override void dispose(){email.dispose();password.dispose();name.dispose();super.dispose();}
  Future<void> submit() async {
   if(busy)return;
@@ -71,8 +71,8 @@ class _LoginPageState extends State<LoginPage> {
    if(createAccount){
     final credential=await FirebaseAuth.instance.createUserWithEmailAndPassword(email:email.text.trim(),password:password.text);
     await credential.user!.updateDisplayName(name.text.trim());
-    await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).set({'uid':credential.user!.uid,'email':email.text.trim().toLowerCase(),'displayName':name.text.trim(),'role':'pending','createdAt':FieldValue.serverTimestamp()});
-    if(mounted)setState(()=>info='Account created. An administrator must assign your role and pairing permissions before use.');
+    await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).set({'uid':credential.user!.uid,'email':email.text.trim().toLowerCase(),'displayName':name.text.trim(),'role':selectedRole==Role.patient?'patient':'caregiver','createdAt':FieldValue.serverTimestamp()});
+    if(mounted)setState(()=>info=selectedRole==Role.patient?'Account ready. Connect your stick from the patient screen.':'Account ready. To view a patient, you still need to be paired with them.');
    }else{await FirebaseAuth.instance.signInWithEmailAndPassword(email:email.text.trim(),password:password.text);}
   }on FirebaseAuthException catch(ex){
    if(mounted)setState(()=>error=switch(ex.code){
@@ -92,6 +92,15 @@ class _LoginPageState extends State<LoginPage> {
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
  const SizedBox(height:20),const Text('Saathi',style:TextStyle(fontSize:38,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
  Text(createAccount?'Create your account':'Welcome back',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
+ if(createAccount)...[
+  const Text('How will you use Saathi?',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),
+  const SizedBox(height:10),
+  RadioGroup<Role>(groupValue:selectedRole,onChanged:(value){if(value!=null)setState(()=>selectedRole=value);},child:Column(children:[
+   RadioListTile<Role>(value:Role.patient,title:const Text('I use the blind stick'),subtitle:const Text('Patient — navigation, obstacle alerts and SOS'),contentPadding:EdgeInsets.zero),
+   RadioListTile<Role>(value:Role.caregiver,title:const Text('I support someone'),subtitle:const Text('Caregiver — view a linked patient’s status and alerts'),contentPadding:EdgeInsets.zero),
+  ])),
+  const SizedBox(height:8),
+ ],
  if(createAccount)...[TextField(controller:name,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12)],
  TextField(controller:email,keyboardType:TextInputType.emailAddress,autofillHints:const [AutofillHints.email],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Email address',prefixIcon:Icon(Icons.email_outlined))),const SizedBox(height:12),
  TextField(controller:password,obscureText:hide,autofillHints:createAccount?const [AutofillHints.newPassword]:const [AutofillHints.password],onSubmitted:(_)=>submit(),decoration:InputDecoration(labelText:'Password',helperText:createAccount?'Use at least 6 characters':'',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
