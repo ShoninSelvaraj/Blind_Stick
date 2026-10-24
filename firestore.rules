@@ -38,6 +38,17 @@ service cloud.firestore {
     request.resource.data.keys().hasOnly(['uid','email','displayName','role','createdAt']) &&
     request.resource.data.createdAt == request.time;
    allow update, delete: if false;
+   match /fcmTokens/{tokenId} {
+    allow read: if signedIn() && request.auth.uid == uid;
+    allow create, update: if signedIn() && request.auth.uid == uid &&
+     request.resource.data.token is string &&
+     request.resource.data.token.size() >= 20 &&
+     request.resource.data.token.size() <= 4096 &&
+     request.resource.data.platform == 'android' &&
+     request.resource.data.updatedAt == request.time &&
+     request.resource.data.keys().hasOnly(['token','platform','updatedAt']);
+    allow delete: if signedIn() && request.auth.uid == uid;
+   }
   }
 
   match /patients/{patientUid} {
