@@ -6,6 +6,14 @@ This document separates code-backed features from capabilities that need hardwar
 
 The requirements baseline is `docs/CLIENT_FEATURE_AUDIT.md`, cross-checked against the current Flutter, Kotlin and ESP32-CAM source.
 
+## Code hardening in this delivery branch
+
+- Recovery screen for the case where Firebase Authentication succeeds but the user profile write fails; it can create a missing profile without overwriting an existing role.
+- Patient-record initialization now exposes Firestore failures in the Connections area and offers a retry instead of silently swallowing the error.
+- Firestore rules validate patient location coordinates, accuracy, server timestamps and device-status values. SOS/event writes validate coordinate ranges and only accept the initial client status `saved`.
+- Added unit tests for ultrasonic telemetry: valid ranges, invalid measurements, and missing data are checked so an unavailable sensor is never represented as a clear path.
+- GitHub Actions runs Flutter analysis, unit tests and an Android debug APK build; the APK is published as a short-lived artifact for device testing when the workflow succeeds.
+
 | Client requirement | Existing source implementation | Remaining gap / acceptance check |
 |---|---|---|
 | Accessible patient interface | Four task tabs, labelled large controls, TalkBack-compatible controls, adjustable text/high contrast and TTS | Test with screen reader, 200% font scaling/system settings, contrast and blind/low-vision users on real devices |
