@@ -166,6 +166,14 @@ class _LoginPageState extends State<LoginPage> {
   );
  }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
+ Align(
+  alignment:Alignment.centerRight,
+  child:TextButton.icon(
+   onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage(preLogin:true))),
+   icon:const Icon(Icons.accessibility_new),
+   label:const Text('Accessibility settings'),
+  ),
+ ),
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
  const SizedBox(height:20),Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
  Text(createAccount?'Create your account':'Welcome back',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
@@ -1991,7 +1999,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
  }
 }
 
-class SettingsPage extends StatefulWidget{const SettingsPage({super.key});@override State<SettingsPage> createState()=>_SettingsPageState();}
+class SettingsPage extends StatefulWidget{final bool preLogin;const SettingsPage({super.key,this.preLogin=false});@override State<SettingsPage> createState()=>_SettingsPageState();}
 class _SettingsPageState extends State<SettingsPage>{
  bool voice=true,highContrast=false;double textScale=1.0;String? saved;
  final tileUrlController=TextEditingController(text:defaultMapTileUrl);
@@ -2062,7 +2070,7 @@ class _SettingsPageState extends State<SettingsPage>{
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
    const SizedBox(height:18),
-   ExpansionTile(
+   if(!widget.preLogin)ExpansionTile(
     title:const Text('Stick camera connection',style:TextStyle(fontWeight:FontWeight.w800)),
     subtitle:const Text('Local Wi-Fi link to the ESP32-CAM'),
     children:[
@@ -2074,7 +2082,7 @@ class _SettingsPageState extends State<SettingsPage>{
      const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('Download the AI model before switching to the camera Wi-Fi. The default password is for development only; change it before public use.',style:TextStyle(color:Color(0xFF59697B)))),
     ],
    ),
-   ExpansionTile(
+   if(!widget.preLogin)ExpansionTile(
     title:const Text('Map services (advanced)',style:TextStyle(fontWeight:FontWeight.w800)),
     subtitle:const Text('Change map/search/routing servers without updating the app'),
     children:[
@@ -2091,9 +2099,12 @@ class _SettingsPageState extends State<SettingsPage>{
    ),
    const SizedBox(height:22),
    OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
-   const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
-   const SizedBox(height:24),Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
-   const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
+   if(!widget.preLogin)const SizedBox(height:12),
+   if(!widget.preLogin)OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
+   if(!widget.preLogin)const SizedBox(height:24),
+   if(!widget.preLogin)Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
+   if(!widget.preLogin)const SizedBox(height:8),
+   if(!widget.preLogin)const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
    const SizedBox(height:20),const Text('Safety note',style:TextStyle(color:Color(0xFF64748B))),
    const Text('BlindStick Companion is a companion prototype, not a certified mobility aid. Keep using your usual mobility skills and emergency arrangements. The app cannot guarantee GPS accuracy, network availability or emergency delivery.',style:TextStyle(color:Color(0xFF64748B))),
   ]));
