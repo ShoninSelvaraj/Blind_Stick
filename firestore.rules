@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn(){return request.auth != null;}
+  function patientOwner(patientUid){return signedIn() && request.auth.uid == patientUid && exists(/databases/$(database)/documents/patients/$(patientUid)) && get(/databases/$(database)/documents/patients/$(patientUid)).data.ownerUid == request.auth.uid;}
+  function linkedCaregiver(patientUid){return signedIn() && exists(/databases/$(database)/documents/patients/$(patientUid)) && request.auth.uid in get(/databases/$(database)/documents/patients/$(patientUid)).data.caregiverUids;}
+  match /users/{uid} {
+   allow read: if signedIn() && request.auth.uid == uid;
+   allow create: if signedIn() && request.auth.uid == uid && request.resource.data.uid == uid && request.resource.data.role == 'pending' && request.resource.data.keys().hasOnly(['uid','email','displayName','role','createdAt']);
+   allow update, delete: if false;
+  }
+  // One owner per patient/stick; max two linked caregivers. Pairing is admin-managed.
+  match /patients/{patientUid} {
+   allow create: if signedIn() && request.auth.uid == patientUid && get(/databases/$(database)/documents/users/$(patientUid)).data.role == 'patient' && request.resource.data.ownerUid == request.auth.uid && request.resource.data.caregiverUids is list && request.resource.data.caregiverUids.size() <= 2;
+   allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
+   allow update: if patientOwner(patientUid) && request.resource.data.ownerUid == resource.data.ownerUid && request.resource.data.caregiverUids == resource.data.caregiverUids && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation','lastSeenAt','deviceStatus','updatedAt']);
+   allow delete: if false;
+   match /locations/{locationId} {
+    allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
+    allow create: if patientOwner(patientUid) && request.resource.data.keys().hasOnly(['latitude','longitude','accuracyM','recordedAt']) && request.resource.data.latitude is number && request.resource.data.longitude is number && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90 && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180;
+    allow update, delete: if false;
+   }
+   match /alerts/{alertId} {
+    allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
+    allow create: if patientOwner(patientUid) && request.resource.data.keys().hasOnly(['type','message','createdAt','latitude','longitude','deliveryStatus']) && request.resource.data.type in ['sos','obstacle','device_offline','system'] && request.resource.data.message is string && request.resource.data.message.size() <= 500;
+    allow update, delete: if false;
+   }
+  }
+ }
+}
