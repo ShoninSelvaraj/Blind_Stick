@@ -6,7 +6,7 @@ service cloud.firestore {
   function linkedCaregiver(patientUid){return signedIn() && exists(/databases/$(database)/documents/patients/$(patientUid)) && request.auth.uid in get(/databases/$(database)/documents/patients/$(patientUid)).data.caregiverUids;}
   match /users/{uid} {
    allow read: if signedIn() && request.auth.uid == uid;
-   allow create: if signedIn() && request.auth.uid == uid && request.resource.data.uid == uid && request.resource.data.role == 'pending' && request.resource.data.keys().hasOnly(['uid','email','displayName','role','createdAt']);
+   allow create: if signedIn() && request.auth.uid == uid && request.resource.data.uid == uid && request.resource.data.role in ['patient','caregiver'] && request.resource.data.keys().hasOnly(['uid','email','displayName','role','createdAt']);
    allow update, delete: if false;
   }
   // One owner per patient/stick; max two linked caregivers. Pairing is admin-managed.
