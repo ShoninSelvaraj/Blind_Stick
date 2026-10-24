@@ -1,0 +1,6 @@
+{
+ "project_info":{"project_number":"768447969794","project_id":"blindstick001","storage_bucket":"blindstick001.firebasestorage.app"},
+ "client":[{"client_info":{"mobilesdk_app_id":"1:768447969794:android:3725cf478da26935ca851b","android_client_info":{"package_name":"com.vimal.blindstick"}},
+ "oauth_client":[],"api_key":[{"current_key":"AIzaSyCIuRpK6X9xf_Y6m19q2qijkJ3sSKS_YAg"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}],
+ "configuration_version":"1"
+}
