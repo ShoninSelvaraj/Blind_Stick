@@ -1,4 +1,4 @@
-package com.santaburners.blindstick_companion
+package com.vimal.blindstick
 
 import io.flutter.embedding.android.FlutterActivity
 
