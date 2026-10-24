@@ -2,6 +2,8 @@ package com.vimal.blindstick
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
@@ -10,10 +12,16 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.content.pm.ServiceInfo
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import androidx.core.app.NotificationCompat
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.Tensor
@@ -98,6 +106,31 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "blindstick_companion/alerts")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startCaregiverAlertMonitor" -> {
+                        try {
+                            val serviceIntent = Intent(this, CaregiverAlertMonitorService::class.java)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(serviceIntent)
+                            } else {
+                                startService(serviceIntent)
+                            }
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("ALERT_MONITOR_START", error.message, null)
+                        }
+                    }
+                    "stopCaregiverAlertMonitor" -> result.success(
+                        stopService(Intent(this, CaregiverAlertMonitorService::class.java))
+                    )
+                    "isCaregiverAlertMonitorRunning" -> result.success(
+                        CaregiverAlertMonitorService.isRunning
+                    )
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, visionChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -686,4 +719,206 @@ class MainActivity : FlutterActivity() {
         interpreter = null
         pedestrianSignalInterpreter = null
     }
+}
+
+/**
+ * Zero-billing caregiver alert monitor. A user explicitly starts this visible
+ * foreground service while signed in; it listens only to the currently paired
+ * patient's SOS collection and displays local Android notifications. It is not
+ * FCM and Android may still stop it under force-stop or battery restrictions.
+ */
+class CaregiverAlertMonitorService : Service() {
+    companion object {
+        @Volatile var isRunning: Boolean = false
+            private set
+        private const val MONITOR_CHANNEL = "blindstick_companion_monitor"
+        private const val MONITOR_NOTIFICATION_ID = 9101
+        private const val SOS_CHANNEL = "blindstick_companion_emergency_alerts"
+    }
+
+    private var claimListener: ListenerRegistration? = null
+    private var alertsListener: ListenerRegistration? = null
+    private var activePatientUid: String? = null
+    private var alertsPrimed = false
+    private val seenAlertIds = mutableSetOf<String>()
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannels()
+        val notification = monitorNotification("Waiting for the linked person's account")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                MONITOR_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(MONITOR_NOTIFICATION_ID, notification)
+        }
+        isRunning = true
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        claimListener?.remove()
+        claimListener = FirebaseFirestore.getInstance()
+            .collection("pairingClaims")
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    updateMonitorNotification("Connection issue. Open the app to check alert monitoring.")
+                    return@addSnapshotListener
+                }
+                val patientUid = snapshot?.getString("patientUid")
+                if (patientUid.isNullOrBlank()) {
+                    stopPatientAlertListener()
+                    updateMonitorNotification("No linked person yet. Pair with someone in the app.")
+                } else if (patientUid != activePatientUid) {
+                    listenForPatient(patientUid)
+                }
+            }
+        return START_STICKY
+    }
+
+    private fun listenForPatient(patientUid: String) {
+        stopPatientAlertListener()
+        activePatientUid = patientUid
+        alertsPrimed = false
+        seenAlertIds.clear()
+        updateMonitorNotification("Monitoring SOS alerts from your linked person")
+        alertsListener = FirebaseFirestore.getInstance()
+            .collection("patients")
+            .document(patientUid)
+            .collection("alerts")
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(20)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    updateMonitorNotification("Alert connection interrupted. Open the app to check status.")
+                    return@addSnapshotListener
+                }
+                if (!alertsPrimed) {
+                    seenAlertIds.addAll(snapshot.documents.map { it.id })
+                    alertsPrimed = true
+                    return@addSnapshotListener
+                }
+                for (change in snapshot.documentChanges) {
+                    if (change.type != com.google.firebase.firestore.DocumentChange.Type.ADDED) continue
+                    val document = change.document
+                    if (!seenAlertIds.add(document.id)) continue
+                    if (document.getString("type") != "sos") continue
+                    val detail = document.getString("message") ?: "Emergency assistance requested"
+                    val latitude = document.getDouble("latitude")
+                    val longitude = document.getDouble("longitude")
+                    showEmergencyNotification(detail, latitude, longitude)
+                }
+            }
+    }
+
+    private fun stopPatientAlertListener() {
+        alertsListener?.remove()
+        alertsListener = null
+        activePatientUid = null
+        alertsPrimed = false
+        seenAlertIds.clear()
+    }
+
+    private fun createChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                MONITOR_CHANNEL,
+                "Caregiver SOS monitoring",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Persistent status while background caregiver alert monitoring is enabled"
+                setShowBadge(false)
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                SOS_CHANNEL,
+                "BlindStick Companion emergency alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Emergency alerts from a person linked to your account"
+                enableVibration(true)
+                setShowBadge(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+            }
+        )
+    }
+
+    private fun monitorNotification(message: String) =
+        NotificationCompat.Builder(this, MONITOR_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("BlindStick Companion")
+            .setContentText(message)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setContentIntent(openAppPendingIntent())
+            .build()
+
+    private fun updateMonitorNotification(message: String) {
+        getSystemService(NotificationManager::class.java)
+            .notify(MONITOR_NOTIFICATION_ID, monitorNotification(message))
+    }
+
+    private fun showEmergencyNotification(
+        detail: String,
+        latitude: Double?,
+        longitude: Double?
+    ) {
+        val location = if (latitude != null && longitude != null) {
+            " Shared coordinates are available in the app."
+        } else {
+            " No coordinates were attached to this alert."
+        }
+        val notification = NotificationCompat.Builder(this, SOS_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("BlindStick Companion: SOS alert")
+            .setContentText("Your linked person requested help. Open the app to check.")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("$detail$location Open BlindStick Companion and contact the person.")
+            )
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 500, 180, 500))
+            .setContentIntent(openAppPendingIntent())
+            .build()
+        val notificationId = (System.currentTimeMillis() and 0x7fffffff).toInt()
+        getSystemService(NotificationManager::class.java).notify(notificationId, notification)
+    }
+
+    private fun openAppPendingIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        return PendingIntent.getActivity(this, 9101, intent, flags)
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onDestroy() {
+        claimListener?.remove()
+        claimListener = null
+        stopPatientAlertListener()
+        isRunning = false
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 }
