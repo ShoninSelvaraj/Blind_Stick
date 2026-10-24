@@ -1,3 +1,10 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
 
 import java.security.MessageDigest
 import java.util.zip.ZipFile
@@ -55,12 +62,7 @@ tasks.register("prepareBundledVisionModels") {
 
 tasks.named("preBuild").configure { dependsOn("prepareBundledVisionModels") }
 
-plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
-    id "com.google.gms.google-services"
-}
+
 
 android {
     namespace = "com.vimal.blindstick"
