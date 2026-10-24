@@ -216,12 +216,12 @@ void handleCameraCapture() {
   WiFiClient client = cameraServer.client();
   client.setNoDelay(true);
   client.printf(
-    "HTTP/1.1 200 OK\\r\\n"
-    "Content-Type: image/jpeg\\r\\n"
-    "Cache-Control: no-store\\r\\n"
-    "Access-Control-Allow-Origin: *\\r\\n"
-    "Content-Length: %u\\r\\n"
-    "Connection: close\\r\\n\\r\\n",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: image/jpeg\r\n"
+    "Cache-Control: no-store\r\n"
+    "Access-Control-Allow-Origin: *\r\n"
+    "Content-Length: %u\r\n"
+    "Connection: close\r\n\r\n",
     (unsigned int)frame->len);
   const size_t written = client.write(frame->buf, frame->len);
   cameraFrameAvailable = written == frame->len;
@@ -293,7 +293,7 @@ void setup() {
 
   WiFi.mode(WIFI_AP);
   const bool apStarted = WiFi.softAP(CAMERA_AP_SSID, CAMERA_AP_PASSWORD, 6, false, 1);
-  Serial.printf("Camera AP %s: %s at %s\\n",
+  Serial.printf("Camera AP %s: %s at %s\n",
     CAMERA_AP_SSID, apStarted ? "started" : "FAILED",
     WiFi.softAPIP().toString().c_str());
   cameraServer.on("/status", HTTP_GET, handleCameraStatus);
