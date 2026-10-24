@@ -49,12 +49,51 @@ class CameraVisionService extends ChangeNotifier {
   int personCount = 0;
   final List<int> _personCountSamples = <int>[];
   bool _frameStreamWarningSpoken = false;
+  double? _ultrasonicDistanceCm;
+  DateTime? _ultrasonicReceivedAt;
+  String _rangeSensorStatus = 'unknown';
   List<Map<String, dynamic>> pedestrianSignals = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> detections = <Map<String, dynamic>>[];
 
   bool get modelReady => _modelReady;
   bool get cameraReachable => _cameraReachable;
   bool get running => _running;
+
+  /// Supplies a fresh range sample from the BLE telemetry path for cautious sensor fusion.
+  /// A distance value is not assigned to a particular visual detection; it is only
+  /// combined with a central/lower camera-region candidate as supporting context.
+  void updateRangeReading(
+    double? distanceCm, {
+    required DateTime? receivedAt,
+    required String sensorStatus,
+  }) {
+    _rangeSensorStatus = sensorStatus;
+    if (distanceCm != null &&
+        distanceCm.isFinite &&
+        distanceCm >= 2 &&
+        distanceCm <= 400 &&
+        receivedAt != null &&
+        DateTime.now().difference(receivedAt) <= const Duration(seconds: 3) &&
+        sensorStatus == 'fresh') {
+      _ultrasonicDistanceCm = distanceCm;
+      _ultrasonicReceivedAt = receivedAt;
+    } else {
+      _ultrasonicDistanceCm = null;
+      _ultrasonicReceivedAt = null;
+    }
+  }
+
+  double? get _freshUltrasonicDistance {
+    final value = _ultrasonicDistanceCm;
+    final receivedAt = _ultrasonicReceivedAt;
+    if (_rangeSensorStatus != 'fresh' ||
+        value == null ||
+        receivedAt == null ||
+        DateTime.now().difference(receivedAt) > const Duration(seconds: 3)) {
+      return null;
+    }
+    return value;
+  }
 
   Future<void> initialize() async {
     final preferences = await SharedPreferences.getInstance();
@@ -353,12 +392,30 @@ class CameraVisionService extends ChangeNotifier {
     }
   }
 
+  /// Coded single-motor feedback: one short/long pulse = camera-left,
+  /// two = camera-right, three = ahead/center. Longer pulses are urgent-stop
+  /// priority; this is approximate camera geometry, not a measured 3-D direction.
+  Future<void> _deliverObstaclePattern({
+    required String side,
+    required bool urgent,
+  }) async {
+    final count = side == 'left' ? 1 : side == 'right' ? 2 : 3;
+    final pulseMs = urgent ? 260 : 100;
+    for (var i = 0; i < count; i++) {
+      await vibrate(pulseMs);
+      if (i + 1 < count) {
+        await Future<void>.delayed(Duration(milliseconds: urgent ? 110 : 180));
+      }
+    }
+  }
+
   void _processSafetyCue() {
     final highConfidence = detections.where((d) {
       return (d['confidence'] as num? ?? 0).toDouble() >= 0.48;
     }).toList();
 
     Map<String, dynamic>? obstacle;
+    String obstacleSide = 'ahead';
     const obstacleLabels = <String>{
       'person',
       'bicycle',
@@ -384,6 +441,7 @@ class CameraVisionService extends ChangeNotifier {
       final centerX = (left + right) / 2;
       if (bottom > 0.62 && centerX > 0.12 && centerX < 0.88 && top < 0.92) {
         obstacle = detection;
+        obstacleSide = centerX < 0.40 ? 'left' : centerX > 0.60 ? 'right' : 'ahead';
         break;
       }
     }
@@ -397,9 +455,16 @@ class CameraVisionService extends ChangeNotifier {
     final String spoken;
     if (obstacle != null) {
       final label = obstacle['label'].toString();
-      cueKey = 'obstacle:$label';
-      spoken =
-          'Potential obstacle in the camera view: $label. Camera distance is not measured. Use your cane and verified distance sensor; stop if uncertain.';
+      final range = _freshUltrasonicDistance;
+      final rangeBand = range == null ? 'unknown' : range < 35 ? 'stop' : range < 90 ? 'caution' : 'far';
+      cueKey = 'obstacle:$label:$obstacleSide:$rangeBand';
+      if (range != null && range < 35) {
+        spoken = 'Stop. The camera estimates a $label $obstacleSide and the ultrasonic sensor reports about ${range.round()} centimetres ahead. This reading may not belong to that exact object. Use your cane and stop if uncertain.';
+      } else if (range != null && range < 90) {
+        spoken = 'Caution. The camera estimates a $label $obstacleSide and the ultrasonic sensor reports about ${range.round()} centimetres ahead. Keep using your cane and slow down.';
+      } else {
+        spoken = 'Potential obstacle $obstacleSide: $label. No fresh matching distance estimate is available for this object. Use your cane and stop if uncertain.';
+      }
     } else if (pedestrianSignalLost) {
       cueKey = 'pedestrian-signal-lost';
       spoken =
@@ -456,7 +521,14 @@ class CameraVisionService extends ChangeNotifier {
       _lastCueKey = cueKey;
       _lastCueAt = now;
       HapticFeedback.heavyImpact();
-      vibrate(obstacle != null ? 300 : 180).catchError((_) {});
+      if (obstacle != null) {
+        _deliverObstaclePattern(
+          side: obstacleSide,
+          urgent: (_freshUltrasonicDistance ?? double.infinity) < 35,
+        ).catchError((_) {});
+      } else {
+        vibrate(180).catchError((_) {});
+      }
       speak(spoken).catchError((_) {});
       if (cueKey != _lastLoggedCueKey ||
           now.difference(_lastLoggedAt) >= const Duration(seconds: 30)) {
