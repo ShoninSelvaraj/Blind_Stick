@@ -323,7 +323,8 @@ class StickTelemetry {
   object=detected?.toString()??'Waiting for device data';
   signal=(j['signal']??'unknown').toString();
   final b=j['battery']??j['battery_percent'];
-  battery=b is num?b.toInt():null;
+  // Never expose an out-of-range or non-numeric battery value as a real percentage.
+  battery=b is num&&b.isFinite&&b>=0&&b<=100?b.toInt():null;
   trafficWalk = j['traffic_walk'] is bool ? j['traffic_walk'] as bool : null;
   crowd=(j['crowd']??'unknown').toString();
   detectionStatus=(j['detection_status']??'waiting_for_device').toString();
