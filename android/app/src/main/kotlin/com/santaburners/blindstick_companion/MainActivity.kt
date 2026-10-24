@@ -257,6 +257,50 @@ class MainActivity : FlutterActivity() {
         return File(folder, "pedestrian-signal-yolo26n-7cls-int8-320.tflite")
     }
 
+    /** Copies the object-detection model bundled in the APK to app-private storage. */
+    private fun ensureModelFile(): File {
+        val destination = modelFile()
+        if (destination.exists() && destination.length() > 100_000) {
+            FileInputStream(destination).use { input ->
+                val header = ByteArray(8)
+                if (input.read(header) == header.size && String(header, 4, 4, Charsets.US_ASCII) == "TFL3") {
+                    return destination
+                }
+            }
+            destination.delete()
+        }
+
+        assets.open("vision-model/detect.tflite").use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output -> input.copyTo(output) }
+        }
+        FileInputStream(destination).use { input ->
+            val header = ByteArray(8)
+            if (destination.length() <= 100_000 || input.read(header) != header.size ||
+                String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                destination.delete()
+                throw IllegalStateException("The built-in obstacle-detection model is damaged. Reinstall the app.")
+            }
+        }
+        return destination
+    }
+
+    @Synchronized
+    private fun getInterpreter(file: File = modelFile()): Interpreter {
+        val existing = interpreter
+        if (existing != null) return existing
+        if (!file.exists() || file.length() <= 100_000) {
+            throw IllegalStateException("The built-in obstacle-detection model is missing. Tap Set up obstacle detection again.")
+        }
+        FileInputStream(file).use { input ->
+            val header = ByteArray(8)
+            if (input.read(header) != header.size || String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
+                throw IllegalStateException("The built-in obstacle-detection model failed its integrity check. Reinstall the app.")
+            }
+        }
+        val options = Interpreter.Options().apply { setNumThreads(2) }
+        return Interpreter(file, options).also { interpreter = it }
+    }
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         FileInputStream(file).use { input ->
@@ -272,117 +316,26 @@ class MainActivity : FlutterActivity() {
 
     private fun ensurePedestrianSignalModelFile(): File {
         val destination = pedestrianSignalModelFile()
-        if (destination.exists() && destination.length() > 2_000_000) {
-            if (sha256(destination) == pedestrianSignalSha256) return destination
+        if (destination.exists() && destination.length() > 2_000_000 &&
+            sha256(destination) == pedestrianSignalSha256) return destination
+        destination.delete()
+
+        // The Gradle preBuild task bundles this asset into the APK.
+        assets.open("vision-model/pedestrian-signal-yolo26n-7cls-int8-320.tflite").use { input ->
+            BufferedOutputStream(FileOutputStream(destination)).use { output -> input.copyTo(output) }
+        }
+        if (destination.length() <= 2_000_000 || sha256(destination) != pedestrianSignalSha256) {
             destination.delete()
+            throw IllegalStateException("The built-in pedestrian-signal model failed its integrity check. Reinstall the app.")
         }
-
-        val temporary = File(destination.parentFile, "pedestrian-signal.tflite.part")
-        val connection = (URL(pedestrianSignalModelUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "BlindStick-Companion/1.0")
-        }
-        try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("Pedestrian-signal model download returned HTTP ${connection.responseCode}.")
-            }
-            BufferedInputStream(connection.inputStream).use { input ->
-                BufferedOutputStream(FileOutputStream(temporary)).use { output -> input.copyTo(output) }
-            }
-        } finally {
-            connection.disconnect()
-        }
-
-        if (temporary.length() < 2_000_000 || sha256(temporary) != pedestrianSignalSha256) {
-            temporary.delete()
-            throw IllegalStateException("Pedestrian-signal model failed the pinned SHA-256 integrity check.")
-        }
-        FileInputStream(temporary).use { input ->
-            val bytes = ByteArray(8)
-            if (input.read(bytes) != bytes.size || String(bytes, 4, 4, Charsets.US_ASCII) != "TFL3") {
-                temporary.delete()
-                throw IllegalStateException("Pedestrian-signal model is not a valid TFLite file.")
-            }
-        }
-        if (destination.exists()) destination.delete()
-        if (!temporary.renameTo(destination)) {
-            temporary.copyTo(destination, overwrite = true)
-            temporary.delete()
-        }
-        return destination
-    }
-
-    private fun ensureModelFile(): File {
-        val destination = modelFile()
-        if (destination.exists() && destination.length() > 100_000) return destination
-        val zipFile = File(cacheDir, "coco-ssd-mobile-net.zip")
-        val connection = (URL(modelZipUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "BlindStick-Companion/1.0")
-        }
-        try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("Model download returned HTTP ${connection.responseCode}. Connect to the internet and try again.")
-            }
-            BufferedInputStream(connection.inputStream).use { input ->
-                BufferedOutputStream(FileOutputStream(zipFile)).use { output -> input.copyTo(output) }
-            }
-        } finally {
-            connection.disconnect()
-        }
-
-        var extracted = false
-        val temporary = File(destination.parentFile, "detect.tflite.part")
-        ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (!entry.isDirectory && entry.name.lowercase(Locale.US).endsWith(".tflite")) {
-                    BufferedOutputStream(FileOutputStream(temporary)).use { output -> zip.copyTo(output) }
-                    zip.closeEntry()
-                    if (temporary.length() > 100_000) {
-                        if (destination.exists()) destination.delete()
-                        if (!temporary.renameTo(destination)) {
-                            temporary.copyTo(destination, overwrite = true)
-                            temporary.delete()
-                        }
-                        extracted = true
-                        break
-                    }
-                }
-                zip.closeEntry()
-            }
-        }
-        zipFile.delete()
-        if (!extracted || !destination.exists() || destination.length() < 100_000) {
-            temporary.delete()
-            throw IllegalStateException("The downloaded archive did not contain a valid TFLite model.")
-        }
-        // TFLite FlatBuffer files start with the TFL3 identifier at byte offset 4.
         FileInputStream(destination).use { input ->
-            val bytes = ByteArray(8)
-            if (input.read(bytes) != bytes.size || String(bytes, 4, 4, Charsets.US_ASCII) != "TFL3") {
+            val header = ByteArray(8)
+            if (input.read(header) != header.size || String(header, 4, 4, Charsets.US_ASCII) != "TFL3") {
                 destination.delete()
-                throw IllegalStateException("The downloaded model failed its file integrity check.")
+                throw IllegalStateException("The built-in pedestrian-signal model is damaged. Reinstall the app.")
             }
         }
         return destination
-    }
-
-    @Synchronized
-    private fun getInterpreter(file: File = modelFile()): Interpreter {
-        val existing = interpreter
-        if (existing != null) return existing
-        if (!file.exists() || file.length() < 100_000) {
-            throw IllegalStateException("General object-detection model not prepared. Connect to the internet and tap Prepare on-device AI first.")
-        }
-        val options = Interpreter.Options().apply { setNumThreads(2) }
-        return Interpreter(file, options).also { interpreter = it }
     }
 
     @Synchronized

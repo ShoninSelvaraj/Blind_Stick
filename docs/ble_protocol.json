@@ -9,6 +9,7 @@
         "notify"
       ],
       "encoding": "UTF-8 JSON, newline-delimited",
+      "minimum_recommended_att_mtu": 384,
       "example": {
         "protocol": 1,
         "device": "blindstick_companion-esp32cam",
@@ -18,6 +19,7 @@
         "detection_status": "runs_on_android_phone",
         "camera_ap_ssid": "BlindStick-Camera",
         "camera_endpoint": "http://192.168.4.1",
+        "battery_status": "unavailable",
         "distance_cm": 42
       }
     },

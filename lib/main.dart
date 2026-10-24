@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -95,12 +96,88 @@ class AuthGate extends StatelessWidget {
   });
  });
 }
-class ProfilePendingPage extends StatelessWidget {
- final String email;const ProfilePendingPage({super.key,required this.email});
- @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
- Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
- Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:signOutSafely,icon:const Icon(Icons.logout),label:const Text('Sign out'))
- ])))));
+class ProfilePendingPage extends StatefulWidget {
+ final String email;
+ const ProfilePendingPage({super.key,required this.email});
+ @override State<ProfilePendingPage> createState()=>_ProfilePendingPageState();
+}
+
+class _ProfilePendingPageState extends State<ProfilePendingPage> {
+ final _nameController=TextEditingController();
+ Role _role=Role.patient;
+ bool _saving=false;
+ String? _error;
+ @override void initState(){
+  super.initState();
+  _nameController.text=FirebaseAuth.instance.currentUser?.displayName??'';
+ }
+ @override void dispose(){_nameController.dispose();super.dispose();}
+
+ Future<void> _completeProfile() async {
+  final user=FirebaseAuth.instance.currentUser;
+  final name=_nameController.text.trim();
+  if(user==null){setState(()=>_error='Your sign-in session expired. Sign in again.');return;}
+  if(name.isEmpty){setState(()=>_error='Enter your name to finish setting up the account.');return;}
+  setState(()=>_saving=true);
+  try{
+   final profile=FirebaseFirestore.instance.collection('users').doc(user.uid);
+   final existing=await profile.get();
+   if(existing.exists){
+    throw StateError('A profile record already exists but is invalid. Sign out and contact the project administrator; this recovery screen cannot safely overwrite an existing role.');
+   }
+   await profile.set({
+    'uid':user.uid,
+    'email':(user.email??widget.email).trim().toLowerCase(),
+    'displayName':name,
+    'role':_role==Role.patient?'patient':'caregiver',
+    'createdAt':FieldValue.serverTimestamp(),
+   });
+   await user.updateDisplayName(name);
+   if(mounted)setState(()=>_error=null);
+  }on FirebaseException catch(ex){
+   if(mounted)setState(()=>_error='Profile could not be saved (${ex.code}). Check your connection and Firestore rules, then try again.');
+  }catch(ex){
+   if(mounted)setState(()=>_error=ex is StateError?ex.message.toString():'Profile setup failed. Please try again.');
+  }finally{
+   if(mounted)setState(()=>_saving=false);
+  }
+ }
+
+ @override Widget build(BuildContext context)=>Scaffold(
+  body:SafeArea(child:Center(child:SingleChildScrollView(
+   padding:const EdgeInsets.all(24),
+   child:ConstrainedBox(
+    constraints:const BoxConstraints(maxWidth:520),
+    child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+     Icon(Icons.account_circle_outlined,size:64,color:teal),
+     const SizedBox(height:18),
+     Text('Finish account setup',textAlign:TextAlign.center,style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
+     const SizedBox(height:12),
+     Text('Signed in as ${widget.email}. Your sign-in succeeded, but the profile record was not saved. Complete setup below to continue.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),
+     const SizedBox(height:24),
+     TextField(controller:_nameController,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),
+     const SizedBox(height:14),
+     DropdownButtonFormField<Role>(
+      initialValue:_role,
+      decoration:const InputDecoration(labelText:'How will you use BlindStick?',prefixIcon:Icon(Icons.accessibility_new)),
+      items:const [
+       DropdownMenuItem(value:Role.patient,child:Text('Use my smart stick')),
+       DropdownMenuItem(value:Role.caregiver,child:Text('Support someone I care about')),
+      ],
+      onChanged:_saving?null:(value){if(value!=null)setState(()=>_role=value);},
+     ),
+     if(_error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(_error!,style:TextStyle(color:red))),
+     const SizedBox(height:20),
+     SizedBox(height:56,child:FilledButton.icon(
+      onPressed:_saving?null:_completeProfile,
+      icon:_saving?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.check_circle_outline),
+      label:Text(_saving?'Saving profile…':'Complete setup'),
+     )),
+     TextButton(onPressed:_saving?null:signOutSafely,child:const Text('Sign out')),
+    ]),
+   ),
+  ))),
+ );
 }
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
@@ -197,6 +274,33 @@ class _LoginPageState extends State<LoginPage> {
  const SizedBox(height:20),const Text('You can change your choice on a new account only. Caregiver access to someone’s location always requires a private, one-time pairing code from that person.',textAlign:TextAlign.center,style:TextStyle(color:Color(0xFF64748B),fontSize:13))
  ])));
 }
+const String expectedStickDeviceId = 'blindstick_companion-esp32cam';
+
+bool isCompatibleStickTelemetry(Map<String, dynamic> packet) {
+  final rangeStatus = packet['range_sensor_status'];
+  final distance = packet['distance_cm'];
+  final validRangeEnvelope = rangeStatus == 'fresh'
+      ? distance is num &&
+          distance.isFinite &&
+          distance >= 2 &&
+          distance <= 400
+      : rangeStatus == 'unavailable' && !packet.containsKey('distance_cm');
+
+  return packet['protocol'] == 1 &&
+      packet['device'] == expectedStickDeviceId &&
+      packet['assistance'] is bool &&
+      packet['camera_ready'] is bool &&
+      packet['camera_frame_available'] is bool &&
+      packet['detection_status'] is String &&
+      packet['camera_ap_ssid'] is String &&
+      (packet['camera_ap_ssid'] as String).isNotEmpty &&
+      packet['camera_endpoint'] is String &&
+      (packet['camera_endpoint'] as String).isNotEmpty &&
+      validRangeEnvelope &&
+      packet['battery_status'] is String &&
+      (packet['battery_status'] as String).isNotEmpty;
+}
+
 class StickTelemetry {
  double? distanceCm;
  String object='Waiting for device data';
@@ -207,6 +311,7 @@ class StickTelemetry {
  String detectionStatus='waiting_for_device';
  bool? cameraReady;
  bool? cameraFrameAvailable;
+ bool? deviceAssistance;
  DateTime? receivedAt;
  DateTime? distanceReceivedAt;
  String rangeSensorStatus='unknown';
@@ -247,12 +352,14 @@ class StickTelemetry {
   object=detected?.toString()??'Waiting for device data';
   signal=(j['signal']??'unknown').toString();
   final b=j['battery']??j['battery_percent'];
-  battery=b is num?b.toInt():null;
+  // Never expose an out-of-range or non-numeric battery value as a real percentage.
+  battery=b is num&&b.isFinite&&b>=0&&b<=100?b.toInt():null;
   trafficWalk = j['traffic_walk'] is bool ? j['traffic_walk'] as bool : null;
   crowd=(j['crowd']??'unknown').toString();
   detectionStatus=(j['detection_status']??'waiting_for_device').toString();
   cameraReady = j['camera_ready'] is bool ? j['camera_ready'] as bool : null;
   cameraFrameAvailable = j['camera_frame_available'] is bool ? j['camera_frame_available'] as bool : null;
+  deviceAssistance = j['assistance'] is bool ? j['assistance'] as bool : null;
   receivedAt=DateTime.now();
  }
 }
@@ -303,6 +410,8 @@ class ApiService {
 
 Future<void> signOutSafely() async {
  try{await caregiverAlertsChannel.invokeMethod<void>('stopCaregiverAlertMonitor');}catch(_){}
+ final signedInUid=FirebaseAuth.instance.currentUser?.uid;
+ if(signedInUid!=null){try{await FirebaseFirestore.instance.collection('users').doc(signedInUid).collection('fcmTokens').doc('primary').delete();}catch(_){}}
  if(stick.connected){
   try{await stick.setAssistance(false);await stick.disconnect();}catch(_){}
  }
@@ -332,7 +441,7 @@ class PairingService {
   for(var attempt=0;attempt<6;attempt++){
    final code=List.generate(8,(_)=>_random.nextInt(10)).join();
    final ref=_db.collection('pairingCodes').doc(code);
-   final expires=DateTime.now().add(const Duration(minutes:10));
+   final expires=DateTime.now().add(const Duration(minutes:9));
    final created=await _db.runTransaction<bool>((tx)async{
     final existing=await tx.get(ref);
     if(existing.exists)return false;
@@ -381,15 +490,17 @@ class PairingService {
 
 class BleStickService extends ChangeNotifier {
  final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub;
- bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;bool _rangeWarningSpoken=false;
+ bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;bool _rangeWarningSpoken=false;bool _initialDeviceStateSynced=false;DateTime? _connectedAt;
  BleStickService(){
   tts.setLanguage('en-IN');
   tts.setSpeechRate(0.46);
   _freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){
-   if(!connected||!assistance){_rangeWarningSpoken=false;return;}
+   if(!connected){_rangeWarningSpoken=false;return;}
    final now=DateTime.now();
    final lastPacket=telemetry.receivedAt;
-   final packetStale=lastPacket==null||now.difference(lastPacket)>const Duration(seconds:4);
+   final packetStale=lastPacket==null
+       ? _connectedAt!=null&&now.difference(_connectedAt!)>const Duration(seconds:4)
+       : now.difference(lastPacket)>const Duration(seconds:4);
    if(packetStale){
     if(!_staleWarningSpoken){
      _staleWarningSpoken=true;
@@ -410,6 +521,7 @@ class BleStickService extends ChangeNotifier {
     _speak('Live stick communication has resumed. Check that obstacle sensors are working before continuing.');
     notifyListeners();
    }
+   if(!assistance){_rangeWarningSpoken=false;return;}
    final lastRange=telemetry.distanceReceivedAt;
    final rangeStale=telemetry.rangeSensorStatus=='unavailable'||
        telemetry.distanceCm==null||lastRange==null||
@@ -445,8 +557,37 @@ class BleStickService extends ChangeNotifier {
    final results=await FlutterBluePlus.scanResults.firstWhere((r)=>r.any((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid)))).timeout(const Duration(seconds:12),onTimeout:()=> <ScanResult>[]);
    final match=results.where((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid))).toList();
    if(match.isEmpty){status='Stick not found';lastError='No device advertising the BlindStick Companion service was found. Check that the stick is powered on and running the matching firmware.';return;}
-   device=match.first.device; await device!.connect(timeout:const Duration(seconds:15));
-   connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){connected=s==BluetoothConnectionState.connected;if(!connected){assistance=false;status='Connection lost — stick alerts may be unavailable';_event('Connection lost');}else{status='Stick connected';_event('Stick connected');}notifyListeners();});
+   device=match.first.device;
+   await device!.connect(timeout:const Duration(seconds:15));
+   // Telemetry is newline-delimited JSON and can exceed the default 20-byte
+   // BLE payload. Negotiate a larger MTU so a JSON packet is not silently
+   // truncated before the newline reaches the stream.
+   try { await device!.requestMtu(384); } catch (_) {
+    // Some BLE stacks do not support MTU negotiation; packet validation below
+    // will report malformed/incomplete data instead of accepting it.
+   }
+   _packetBuffer='';
+   telemetry.distanceCm=null;
+   telemetry.distanceReceivedAt=null;
+   telemetry.receivedAt=null;
+   telemetry.rangeSensorStatus='unknown';
+   _initialDeviceStateSynced=false;
+   _connectedAt=DateTime.now();
+   connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){
+    connected=s==BluetoothConnectionState.connected;
+    if(!connected){
+     assistance=false;
+     _initialDeviceStateSynced=false;
+     _connectedAt=null;
+     status='Connection lost — stick alerts may be unavailable';
+     _event('Connection lost');
+    }else{
+     _connectedAt=DateTime.now();
+     status='Stick connected — checking live telemetry';
+     _event('Stick connected');
+    }
+    notifyListeners();
+   });
    final services=await device!.discoverServices(); BluetoothService? svc;
    for(final s in services){if(s.serviceUuid==Guid(serviceUuid)){svc=s;break;}}
    if(svc==null)throw Exception('Firmware service UUID does not match the app.');
@@ -460,6 +601,13 @@ class BleStickService extends ChangeNotifier {
  }
  void _handlePacket(List<int> bytes){
   _packetBuffer += utf8.decode(bytes,allowMalformed:true);
+  // Prevent a broken or incompatible peripheral from growing the buffer forever.
+  if(_packetBuffer.length>4096&&!_packetBuffer.contains('\n')){
+   _packetBuffer='';
+   lastError='Stick telemetry packet exceeded the supported size. Check firmware and BLE MTU compatibility.';
+   notifyListeners();
+   return;
+  }
   while(_packetBuffer.contains('\n')){
    final index=_packetBuffer.indexOf('\n');
    final line=_packetBuffer.substring(0,index).trim();
@@ -467,8 +615,31 @@ class BleStickService extends ChangeNotifier {
    if(line.isEmpty)continue;
    try{
     final decoded=jsonDecode(line);
-    if(decoded is Map<String,dynamic>){telemetry.fromJson(decoded);_processSafety();}
-   }catch(_){lastError='Unreadable data received from stick. Check the firmware packet format.';}
+    if(decoded is! Map<String,dynamic>){
+     lastError='Stick sent a telemetry packet that is not a JSON object.';
+     continue;
+    }
+    if(!isCompatibleStickTelemetry(decoded)){
+     lastError='Incompatible stick firmware/protocol. Expected BlindStick Companion protocol v1.';
+     continue;
+    }
+    telemetry.fromJson(decoded);
+    if(!_initialDeviceStateSynced && telemetry.deviceAssistance!=null){
+     // On reconnect, the stick may have kept local obstacle alerts active while
+     // the phone was disconnected. Adopt its real state so the user can stop it.
+     assistance=telemetry.deviceAssistance!;
+     _initialDeviceStateSynced=true;
+     status='Stick connected — live telemetry received';
+    }
+    if(_initialDeviceStateSynced && telemetry.deviceAssistance!=null && telemetry.deviceAssistance!=assistance){
+     lastError='Stick assistance state does not match the app. Stop safely and check the connection.';
+    }else{
+     lastError=null;
+    }
+    _processSafety();
+   }catch(_){
+    lastError='Unreadable or truncated data received from stick. Check firmware packet format and BLE MTU.';
+   }
   }
   notifyListeners();
  }
@@ -486,7 +657,30 @@ class BleStickService extends ChangeNotifier {
   if(warning.isEmpty)_lastWarning='';
  }
  Future<void> _command(Map<String,dynamic> cmd)async{if(!connected||commandChar==null)return;final bytes=utf8.encode('${jsonEncode(cmd)}\n');await commandChar!.write(bytes,withoutResponse:commandChar!.properties.writeWithoutResponse&&!commandChar!.properties.write);}
- Future<void> setAssistance(bool on)async{assistance=on;await _command({'cmd':on?'start':'stop'});_event(on?'Assistance started':'Assistance paused');if(on)_speak('Assistance started. Stay aware of your surroundings.');notifyListeners();}
+ Future<void> setAssistance(bool on)async{
+  if(!connected||commandChar==null){
+   lastError='Connect to the stick before changing assistance mode.';
+   notifyListeners();
+   return;
+  }
+  if(!_initialDeviceStateSynced){
+   lastError='Waiting for the stick to send its first valid telemetry packet. Do not rely on assistance until live data is confirmed.';
+   notifyListeners();
+   return;
+  }
+  final previous=assistance;
+  try{
+   await _command({'cmd':on?'start':'stop'});
+   assistance=on;
+   lastError=null;
+   _event(on?'Assistance started':'Assistance paused');
+   if(on)_speak('Assistance started. Stay aware of your surroundings.');
+  }catch(e){
+   assistance=previous;
+   lastError='Could not send the assistance command to the stick: ${e.toString().replaceFirst('Exception: ','')}';
+  }
+  notifyListeners();
+ }
  Future<void> pulseVibration({int durationMs=180})async{if(!connected||!assistance||commandChar==null)return;try{await _command({'cmd':'vibrate','duration_ms':durationMs});}catch(_){}}
  Future<void> _speak(String s)async{if(!voiceGuidanceEnabled)return;await tts.stop();await tts.speak(s);}
  Future<void> announce(String s)=>_speak(s);
@@ -1371,11 +1565,33 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true,_backgroundSharing=false;int _selectedTab=0;Timer? pairExpiryTimer;StreamSubscription<Position>? locationSharingSubscription;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;bool _patientRecordReady=false;String? _patientRecordError;bool _locationWriteWarningShown=false;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
  void _contrastChanged(){if(mounted)setState((){});}
  void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
- Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
+ Future<void> _ensurePatientRecord() async {
+  if(mounted)setState(()=>_patientRecordError=null);
+  try {
+   final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid);
+   final snap=await ref.get();
+   if(!snap.exists){
+    await ref.set({
+     'ownerUid':widget.user.uid,
+     'displayName':widget.user.name,
+     'caregiverUids':<String>[],
+     'deviceStatus':'not_connected',
+     'createdAt':FieldValue.serverTimestamp(),
+     'updatedAt':FieldValue.serverTimestamp(),
+    });
+   }else if(snap.data()?['ownerUid']!=widget.user.uid){
+    throw StateError('The patient record owner does not match the signed-in account.');
+   }
+   if(mounted)setState(()=>_patientRecordReady=true);
+  }catch(ex){
+   if(mounted)setState(()=>_patientRecordError='Patient profile could not be initialized. Check internet access and deploy the current Firestore rules, then retry. Details: ${ex.toString().replaceFirst('Bad state: ','')}');
+  }
+ }
+
  Future<void> _generatePairingCode() async {
   if(generatingCode)return;
   setState(()=>generatingCode=true);
@@ -1384,12 +1600,21 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    if(!mounted)return;
    setState(() { pairingCode=result.$1; pairingExpiresAt=result.$2; });
    pairExpiryTimer?.cancel();
-   pairExpiryTimer=Timer(const Duration(minutes:10),(){
+   pairExpiryTimer=Timer(const Duration(minutes:9),(){
     if(mounted)setState(() { pairingCode=null; pairingExpiresAt=null; });
    });
-   await stick.announce('Your caregiver pairing code is ${result.$1.split('').join(' ')}. It expires in ten minutes. Share it only with someone you trust.');
+   await stick.announce('Your caregiver code is ${result.$1.split('').join(' ')}. It expires in nine minutes. Share it only with someone you trust.');
+  }on FirebaseException catch(ex){
+   if(!mounted)return;
+   final message=switch(ex.code){
+    'permission-denied'=>'We couldn’t create a code because account access was denied. Please ask the app administrator to check the deployed Firestore rules.',
+    'unavailable'||'deadline-exceeded'=>'The connection is unavailable. Check your internet connection and try again.',
+    'unauthenticated'=>'Your sign-in has expired. Sign in again, then try once more.',
+    _=>'We couldn’t create a code right now. Please try again. (\${ex.code})',
+   };
+   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message),duration:const Duration(seconds:6)));
   }catch(_){
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Could not create a pairing code. Check your connection and Firestore rules.')));
+   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('We couldn’t create a code right now. Check your connection and try again.')));
   }finally{if(mounted)setState(()=>generatingCode=false);}
  }
  Widget _pairingCard(){
@@ -1400,8 +1625,12 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
-    const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
+    const Text('Create a private one-time code for a caregiver. It expires in about 9 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
+    if(!_patientRecordReady)
+     Padding(padding:const EdgeInsets.only(bottom:10),child:Text(_patientRecordError??'Preparing your secure account connection…',style:TextStyle(color:_patientRecordError==null?const Color(0xFF59697B):red))),
+    if(_patientRecordError!=null)
+     Align(alignment:Alignment.centerLeft,child:TextButton.icon(onPressed:_ensurePatientRecord,icon:const Icon(Icons.refresh),label:const Text('Retry account setup'))),
     if(pairingCode!=null&&!expired)...[
      Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
      const SizedBox(height:8),
@@ -1411,7 +1640,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
       Expanded(child:OutlinedButton.icon(onPressed:()=>stick.announce('Your pairing code is ${pairingCode!.split('').join(' ')}'),icon:const Icon(Icons.volume_up),label:const Text('Hear code'))),
      ]),
     ],
-    SizedBox(width:double.infinity,height:52,child:FilledButton.icon(onPressed:generatingCode?null:_generatePairingCode,icon:generatingCode?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.add_link),label:Text(pairingCode!=null&&!expired?'Create a new code':'Create pairing code',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800)))),
+    SizedBox(width:double.infinity,height:52,child:FilledButton.icon(onPressed:(generatingCode||!_patientRecordReady)?null:_generatePairingCode,icon:generatingCode?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.add_link),label:Text(pairingCode!=null&&!expired?'Create a new code':'Create pairing code',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800)))),
    ]),
   );
  }
@@ -1466,16 +1695,29 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   }
   locationSharingSubscription=Geolocator.getPositionStream(locationSettings:settings).listen((p){
    if(!mounted||!sharing)return;
-   setState((){
-    position=p;
-    locationText='Location ready · accuracy ${p.accuracy.round()} m';
-   });
-   unawaited(api.location(widget.user.uid,p));
+   setState(()=>position=p);
+    unawaited(_saveSharedLocation(p));
   },onError:(_){
    if(!mounted)return;
    setState(()=>locationText='Location sharing paused — GPS updates unavailable');
    stick.announce('Location sharing has lost live GPS updates. Your caregiver may see an older location.');
   });
+ }
+
+ Future<bool> _saveSharedLocation(Position p) async {
+  final saved=await api.location(widget.user.uid,p);
+  if(!mounted)return saved;
+  if(!saved){
+   setState(()=>locationText='GPS is available, but location could not be shared. Check internet and Firestore access.');
+   if(!_locationWriteWarningShown){
+    _locationWriteWarningShown=true;
+    unawaited(stick.announce('Warning. GPS is available, but your location could not be sent to your caregiver. They may see an older location. Check internet access.'));
+   }
+  }else{
+   _locationWriteWarningShown=false;
+   if(sharing)setState(()=>locationText='Location shared · accuracy ${p.accuracy.round()} m · updated just now');
+  }
+  return saved;
  }
 
  Future<void> _refreshLocation()async{
@@ -1485,7 +1727,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    position=p;
    locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m';
   });
-  if(sharing&&p!=null)await api.location(widget.user.uid,p);
+  if(sharing&&p!=null)await _saveSharedLocation(p);
  }
 
  Future<void> _toggleSharing(bool v)async{
@@ -1515,7 +1757,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    position=current;
    locationText='Location ready · accuracy ${current.accuracy.round()} m';
   });
-  await api.location(widget.user.uid,current);
+  await _saveSharedLocation(current);
   await _startLocationSharingStream(background:background);
   await stick.announce(background
    ? 'Location sharing is on, including while the screen is off. A persistent Android notification will remain visible. Turn sharing off here to stop it.'
@@ -1524,7 +1766,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _sos()async{
   final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(
    title:const Text('Send emergency alert?'),
-   content:const Text('This saves an SOS to the linked record. In zero-cost mode there is no automatic background push service. A connected caregiver can see the alert while their app is open. You can also open an SMS message and send it yourself.'),
+   content:const Text('This will save an emergency alert for your trusted contact. Saving it does not mean they have received it or that emergency services have been contacted. After saving, you can open a text message to contact them directly.'),
    actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save SOS'))],
   ));
   if(ok!=true)return;
@@ -1533,7 +1775,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   if(!mounted)return;
   final action=await showDialog<String>(context:context,builder:(c)=>AlertDialog(
    title:Text(sent?'SOS saved':'SOS not saved'),
-   content:Text(sent?'The alert is saved. It does not confirm that a caregiver has seen it or that emergency services were contacted. For immediate contact, choose Share by SMS and select your trusted contact.':'The alert could not be saved. Check your connection and Firestore access. If you need help now, contact your trusted person or emergency service using your usual method.'),
+   content:Text(sent?'Your alert was saved, but we cannot confirm that your trusted contact has seen it. If you need help now, use Share by SMS to contact them directly.':'Your alert could not be saved. Check your connection. If you need help now, contact your trusted person or local emergency services directly.'),
    actions:[
     TextButton(onPressed:()=>Navigator.pop(c,'close'),child:const Text('Close')),
     if(sent)FilledButton.icon(onPressed:()=>Navigator.pop(c,'sms'),icon:const Icon(Icons.sms_outlined),label:const Text('Share by SMS')),
@@ -1730,7 +1972,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     child:FilledButton.icon(
      onPressed:vision.modelReady||vision.preparing?null:vision.prepareModel,
      icon:vision.preparing?const SizedBox(width:22,height:22,child:CircularProgressIndicator(strokeWidth:2)):Icon(vision.modelReady?Icons.check_circle_outline:Icons.download_for_offline_outlined,size:26),
-     label:Text(vision.preparing?'Preparing AI model…':vision.modelReady?'On-device AI model prepared':'Prepare on-device AI model',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+     label:Text(vision.preparing?'Setting up obstacle detection…':vision.modelReady?'Obstacle detection is ready':'Set up obstacle detection',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
    ),
    const SizedBox(height:8),
@@ -1788,7 +2030,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
      SizedBox(height:12),
      Text('Where would you like to go?',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),
      SizedBox(height:8),
-     Text('Search for a destination, review the walking route, then choose Start spoken directions.',style:TextStyle(color:Colors.white70,fontSize:16)),
+     Text('Choose where you want to go. We’ll show a walking route and can read the directions aloud. Follow your usual mobility method and confirm your surroundings as you travel.',style:TextStyle(color:Colors.white70,fontSize:16)),
     ]),
    ),
    const SizedBox(height:20),
@@ -1808,7 +2050,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     child:FilledButton.icon(
      onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
      icon:const Icon(Icons.map_outlined,size:28),
-     label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
+     label:const Text('Plan a walking route',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
    ),
    const SizedBox(height:12),
@@ -1824,7 +2066,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    ),
    const SizedBox(height:22),
    const Text(
-    'Navigation note: the route uses public community mapping services and phone GPS. It can be incomplete or inaccurate. Do not start walking based on a route preview alone; stop if spoken directions do not match your surroundings.',
+    'Walking routes and phone GPS can be inaccurate or miss obstacles. Listen to the directions only as a guide, use your usual mobility aid, and stop somewhere safe if the route does not match your surroundings.',
     style:TextStyle(fontSize:14,color:Color(0xFF59697B)),
    ),
   ],
@@ -1845,6 +2087,22 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
     ]),
    ),
    const SizedBox(height:18),
+   if(!_patientRecordReady)Container(
+    padding:const EdgeInsets.all(14),
+    decoration:BoxDecoration(color:const Color(0xFFFFF7E6),borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFD6A243))),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Text('Account connection setup incomplete',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
+     const SizedBox(height:6),
+     Text(_patientRecordError??'Preparing your private patient record…',style:const TextStyle(fontSize:14)),
+     const SizedBox(height:8),
+     Align(alignment:Alignment.centerLeft,child:OutlinedButton.icon(
+      onPressed:_ensurePatientRecord,
+      icon:const Icon(Icons.refresh),
+      label:const Text('Retry setup'),
+     )),
+    ]),
+   ),
+   if(!_patientRecordReady)const SizedBox(height:12),
    _pairingCard(),
    const SizedBox(height:18),
    _section('Location sharing',Icons.location_on_outlined),
@@ -1938,23 +2196,53 @@ class CaregiverPage extends StatefulWidget{
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
  bool _alertsPrimed=false;String? _alertPatientUid;final Set<String> _seenAlertIds=<String>{};
- bool _monitorEnabled=false;bool _monitorStarting=false;
+ bool _monitorEnabled=false;bool _monitorStarting=false;StreamSubscription<String>? _fcmTokenRefresh;
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);_refreshMonitorState();}
  Future<void> _refreshMonitorState() async {try{final running=await caregiverAlertsChannel.invokeMethod<bool>('isCaregiverAlertMonitorRunning')??false;if(mounted)setState(()=>_monitorEnabled=running);}catch(_){}}
  Future<void> _enableBackgroundAlerts() async {
   if(_monitorStarting)return;
   setState(()=>_monitorStarting=true);
+  var pushTokenReady=false;
   try{
-   final permission=await Permission.notification.request();
-   if(!permission.isGranted){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications are disabled. Allow notifications in Android settings to receive background SOS alerts.')));return;}
+   final settings=await FirebaseMessaging.instance.requestPermission(alert:true,badge:true,sound:true);
+   final allowed=settings.authorizationStatus==AuthorizationStatus.authorized ||
+       settings.authorizationStatus==AuthorizationStatus.provisional;
+   if(!allowed){
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications are disabled. Enable them in Android settings to receive background SOS notifications.')));
+    return;
+   }
+   final token=await FirebaseMessaging.instance.getToken();
+   if(token!=null&&token.isNotEmpty){
+    await _saveFcmToken(token);
+    _fcmTokenRefresh ??= FirebaseMessaging.instance.onTokenRefresh.listen((refreshedToken){
+     _saveFcmToken(refreshedToken).catchError((_){});
+    });
+    pushTokenReady=true;
+   }
+   // Keep the zero-billing Firestore listener as a fallback. Push delivery also
+   // depends on the Firebase Cloud Function being deployed and network access.
    await caregiverAlertsChannel.invokeMethod<bool>('startCaregiverAlertMonitor');
-   if(mounted)setState(()=>_monitorEnabled=true);
-   if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Background SOS monitoring is enabled. Keep its persistent notification visible.')));
-  }catch(error){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));}
-  finally{if(mounted)setState(()=>_monitorStarting=false);}
+   if(mounted){setState(()=>_monitorEnabled=true);}
+   if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(
+    pushTokenReady
+     ? 'SOS notifications are enabled. Keep the monitoring notification visible; remote push also needs the Firebase notification function deployed.'
+     : 'On-device SOS monitoring is enabled. Push registration failed, so keep the app monitoring active and check your connection.',
+   )));}
+  }catch(error){
+   if(mounted){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not enable background SOS monitoring: $error')));}
+  }finally{if(mounted)setState(()=>_monitorStarting=false);}
+ }
+ Future<void> _saveFcmToken(String token) async {
+  if(FirebaseAuth.instance.currentUser?.uid!=widget.user.uid)return;
+  await FirebaseFirestore.instance.collection('users').doc(widget.user.uid)
+    .collection('fcmTokens').doc('primary').set({
+      'token':token,
+      'platform':'android',
+      'updatedAt':FieldValue.serverTimestamp(),
+    });
  }
  void _contrastChanged(){if(mounted)setState((){});}
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
+ @override void dispose(){appHighContrast.removeListener(_contrastChanged);_fcmTokenRefresh?.cancel();codeController.dispose();super.dispose();}
 
  void _handleAlertSnapshot(String patientUid, QuerySnapshot<Map<String,dynamic>> snapshot) {
   if (_alertPatientUid != patientUid) {

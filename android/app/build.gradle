@@ -1,9 +1,68 @@
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+
 plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
     id "com.google.gms.google-services"
 }
+
+
+// Bundle both inference models into the APK during the build. End users should
+// never have to download AI models from inside the app.
+def bundledVisionAssets = file("$projectDir/src/main/assets/vision-model")
+def cocoModelAsset = new File(bundledVisionAssets, "detect.tflite")
+def signalModelAsset = new File(bundledVisionAssets, "pedestrian-signal-yolo26n-7cls-int8-320.tflite")
+def cocoModelArchive = new File(buildDir, "tmp/coco-ssd-mobile-net.zip")
+def signalModelUrl = "https://raw.githubusercontent.com/25-p-project-team-6/VIA-Safe-Crosswalk/main/app/src/main/assets/best_yolo26n_7cls_v2_raw_int8_320.tflite"
+def signalModelSha256 = "36243860db3e4c08346c9be4a13c1be36a5e01e2088b11eca7ad7233938a40ef"
+def cocoModelUrl = "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
+
+tasks.register("prepareBundledVisionModels") {
+    outputs.files(cocoModelAsset, signalModelAsset)
+    doLast {
+        bundledVisionAssets.mkdirs()
+        def download = { String source, File target ->
+            if (!target.exists() || target.length() == 0) {
+                target.parentFile.mkdirs()
+                new URL(source).withInputStream { input ->
+                    target.withOutputStream { output -> output << input }
+                }
+            }
+        }
+        if (!cocoModelAsset.exists() || cocoModelAsset.length() < 100_000) {
+            download(cocoModelUrl, cocoModelArchive)
+            def archive = new ZipFile(cocoModelArchive)
+            try {
+                def entry = archive.entries().find { !it.directory && it.name.toLowerCase(Locale.ROOT).endsWith(".tflite") }
+                if (entry == null) throw new GradleException("COCO SSD archive contains no TFLite model")
+                archive.getInputStream(entry).withCloseable { input ->
+                    cocoModelAsset.withOutputStream { output -> output << input }
+                }
+            } finally { archive.close() }
+            cocoModelArchive.delete()
+        }
+        if (!signalModelAsset.exists() || signalModelAsset.length() < 2_000_000) {
+            download(signalModelUrl, signalModelAsset)
+        }
+        def sha256 = { File f ->
+            MessageDigest.getInstance("SHA-256").digest(f.bytes).collect { String.format("%02x", it) }.join()
+        }
+        if (cocoModelAsset.length() < 100_000 || new String(cocoModelAsset.bytes, 4, 4, "US-ASCII") != "TFL3") {
+            throw new GradleException("Bundled COCO SSD model failed TFLite integrity validation")
+        }
+        if (signalModelAsset.length() < 2_000_000 || sha256(signalModelAsset) != signalModelSha256 ||
+            new String(signalModelAsset.bytes[4..7], "US-ASCII") != "TFL3") {
+            signalModelAsset.delete()
+            throw new GradleException("Bundled pedestrian-signal model failed SHA-256/TFLite integrity validation")
+        }
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn("prepareBundledVisionModels") }
+
+
 
 android {
     namespace = "com.vimal.blindstick"

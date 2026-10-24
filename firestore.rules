@@ -63,13 +63,38 @@ service cloud.firestore {
     request.resource.data.createdAt == request.time &&
     request.resource.data.updatedAt == request.time &&
     request.resource.data.keys().hasOnly(['ownerUid','displayName','caregiverUids','deviceStatus','createdAt','updatedAt']);
-   allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
+   // A signed-in patient must be able to check whether their own patient
+   // record exists before creating it for the first time. Without this narrowly
+   // scoped get permission, the initial existence check is denied by Firestore.
+   allow get: if
+    (signedIn() && request.auth.uid == patientUid && userRole(request.auth.uid) == 'patient' &&
+     (!exists(/databases/$(database)/documents/patients/$(patientUid)) ||
+      get(/databases/$(database)/documents/patients/$(patientUid)).data.ownerUid == request.auth.uid)) ||
+    patientOwner(patientUid) || linkedCaregiver(patientUid);
+   allow list: if patientOwner(patientUid) || linkedCaregiver(patientUid);
 
    allow update: if
     (patientOwner(patientUid) &&
      request.resource.data.ownerUid == resource.data.ownerUid &&
      request.resource.data.caregiverUids == resource.data.caregiverUids &&
-     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation','lastSeenAt','deviceStatus','updatedAt'])) ||
+     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLocation','lastSeenAt','deviceStatus','updatedAt']) &&
+     request.resource.data.updatedAt == request.time &&
+     (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastSeenAt']) ||
+      request.resource.data.lastSeenAt == request.time) &&
+     (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['deviceStatus']) ||
+      request.resource.data.deviceStatus in ['not_connected','connected','disconnected']) &&
+     (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastLocation']) ||
+      (request.resource.data.lastLocation is map &&
+       request.resource.data.lastLocation.keys().hasOnly(['latitude','longitude','accuracyM','recordedAt']) &&
+       request.resource.data.lastLocation.latitude is number &&
+       request.resource.data.lastLocation.latitude >= -90 &&
+       request.resource.data.lastLocation.latitude <= 90 &&
+       request.resource.data.lastLocation.longitude is number &&
+       request.resource.data.lastLocation.longitude >= -180 &&
+       request.resource.data.lastLocation.longitude <= 180 &&
+       request.resource.data.lastLocation.accuracyM is number &&
+       request.resource.data.lastLocation.accuracyM >= 0 &&
+       request.resource.data.lastLocation.recordedAt == request.time))) ||
     (validPairingClaim(patientUid) &&
      request.resource.data.ownerUid == resource.data.ownerUid &&
      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caregiverUids']) &&
@@ -95,11 +120,18 @@ service cloud.firestore {
    match /alerts/{alertId} {
     allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
     allow create: if patientOwner(patientUid) &&
-     request.resource.data.type in ['sos','system','obstacle','device_offline'] &&
+     request.resource.data.type in ['sos','system','obstacle','device_offline','vision'] &&
      request.resource.data.message is string &&
      request.resource.data.message.size() <= 500 &&
      request.resource.data.createdAt == request.time &&
-     request.resource.data.keys().hasOnly(['type','message','createdAt','latitude','longitude','deliveryStatus']);
+     request.resource.data.deliveryStatus == 'saved' &&
+     request.resource.data.keys().hasOnly(['type','message','createdAt','latitude','longitude','deliveryStatus']) &&
+     (('latitude' in request.resource.data) == ('longitude' in request.resource.data)) &&
+     (!('latitude' in request.resource.data) ||
+      (request.resource.data.latitude is number &&
+       request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90 &&
+       request.resource.data.longitude is number &&
+       request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180));
     allow update, delete: if false;
    }
   }
