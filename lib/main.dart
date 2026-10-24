@@ -25,6 +25,7 @@ Future<void> main() async {
  voiceGuidanceEnabled = preferences.getBool('voice') ?? true;
  appTextScale.value = preferences.getDouble('text_scale') ?? 1.0;
  appHighContrast.value = preferences.getBool('high_contrast') ?? false;
+ await vision.initialize();
  runApp(const BlindStickApp());
 }
 
