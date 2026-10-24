@@ -375,21 +375,523 @@ class BleStickService extends ChangeNotifier {
 final stick=BleStickService();
 
 Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
-Future<void> openNavigation(BuildContext context,String destination) async {
- void showMessage(String message){if(!context.mounted)return;ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));}
- final place=destination.trim();
- if(place.isEmpty){showMessage('Please enter a destination first.');return;}
- final q=Uri.encodeComponent(place);
- // Hand off immediately to Google Maps navigation; Maps obtains its own live GPS fix.
- // This avoids blocking the app on a slow location request before directions open.
- final nativeRoute=Uri.parse('google.navigation:q=$q&mode=w');
- final webRoute=Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$q&travelmode=walking&dir_action=navigate');
- try{
-  var opened=await launchUrl(nativeRoute,mode:LaunchMode.externalApplication);
-  if(!opened)opened=await launchUrl(webRoute,mode:LaunchMode.externalApplication);
-  if(!opened)showMessage('Could not open navigation. Install or enable Google Maps and check your internet connection.');
- }catch(_){showMessage('Could not open navigation. Check that a maps app is installed and internet is available.');}
+
+Future<void> openNavigation(BuildContext context, String destination) async {
+  final place = destination.trim();
+  if (place.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter a destination first.')),
+    );
+    return;
+  }
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => InAppNavigationPage(initialQuery: place),
+    ),
+  );
 }
+
+class NavigationStep {
+  final String instruction;
+  final LatLng location;
+  final double distanceMeters;
+  const NavigationStep({
+    required this.instruction,
+    required this.location,
+    required this.distanceMeters,
+  });
+}
+
+/// In-app map using OpenStreetMap data and public community geocoding/routing endpoints.
+/// Public services are best-effort prototypes and do not provide an availability guarantee.
+class InAppNavigationPage extends StatefulWidget {
+  final String? initialQuery;
+  final LatLng? initialDestination;
+  final String initialDestinationLabel;
+  const InAppNavigationPage({
+    super.key,
+    this.initialQuery,
+    this.initialDestination,
+    this.initialDestinationLabel = 'Shared location',
+  });
+
+  @override
+  State<InAppNavigationPage> createState() => _InAppNavigationPageState();
+}
+
+class _InAppNavigationPageState extends State<InAppNavigationPage> {
+  final _query = TextEditingController();
+  final _mapController = MapController();
+  Position? _position;
+  LatLng? _destination;
+  String? _destinationLabel;
+  List<LatLng> _routePoints = [];
+  List<NavigationStep> _steps = [];
+  double? _distanceMeters;
+  double? _durationSeconds;
+  bool _busy = false;
+  bool _guidance = false;
+  int _nextStepIndex = 0;
+  String _status = 'Getting your location';
+  String? _error;
+  StreamSubscription<Position>? _positionSubscription;
+  static DateTime? _lastGeocodeRequest;
+
+  @override
+  void initState() {
+    super.initState();
+    _query.text = widget.initialQuery ?? '';
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    final position = await getPosition();
+    if (!mounted) return;
+    if (position != null) {
+      setState(() {
+        _position = position;
+        _status = 'Location ready';
+      });
+      _centerOn(position);
+    } else {
+      setState(() {
+        _status = 'Location unavailable';
+        _error = 'Turn on location and allow location permission to get a walking route.';
+      });
+    }
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen(_onPosition, onError: (_) {
+      if (mounted) {
+        setState(() => _error = 'Live location updates are unavailable. You can still review the route.');
+      }
+    });
+
+    if (widget.initialDestination != null) {
+      _destination = widget.initialDestination;
+      _destinationLabel = widget.initialDestinationLabel;
+      await _fetchRoute();
+    } else if (_query.text.trim().isNotEmpty) {
+      await _searchAndRoute();
+    }
+  }
+
+  void _centerOn(Position position) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _mapController.move(LatLng(position.latitude, position.longitude), 15);
+      } catch (_) {
+        // The controller might not be attached yet.
+      }
+    });
+  }
+
+  void _onPosition(Position position) {
+    if (!mounted) return;
+    setState(() => _position = position);
+    if (_guidance && _nextStepIndex < _steps.length) {
+      final step = _steps[_nextStepIndex];
+      final accuracy = position.accuracy.isFinite ? position.accuracy : 20.0;
+      final threshold = math.max(20.0, accuracy);
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        step.location.latitude,
+        step.location.longitude,
+      );
+      if (distance <= threshold) {
+        _nextStepIndex++;
+        if (_nextStepIndex >= _steps.length) {
+          _finishGuidance();
+        } else {
+          _speakCurrentStep();
+        }
+      }
+    }
+  }
+
+  Future<void> _searchAndRoute() async {
+    if (_busy) return;
+    final query = _query.text.trim();
+    if (query.isEmpty) {
+      setState(() => _error = 'Enter a place or address first.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+      _status = 'Searching for destination';
+      _guidance = false;
+      _routePoints = [];
+      _steps = [];
+    });
+    try {
+      // Nominatim public API policy: user-triggered searches only; no type-ahead.
+      final previous = _lastGeocodeRequest;
+      if (previous != null) {
+        final elapsed = DateTime.now().difference(previous);
+        if (elapsed < const Duration(seconds: 1)) {
+          await Future<void>.delayed(const Duration(seconds: 1) - elapsed);
+        }
+      }
+      _lastGeocodeRequest = DateTime.now();
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+        'q': query,
+        'format': 'jsonv2',
+        'limit': '1',
+      });
+      final response = await http.get(uri, headers: {
+        'User-Agent': 'BlindStick Companion/1.0 (com.vimal.blindstick)',
+      }).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        throw StateError('Place search is temporarily unavailable. Try again later.');
+      }
+      final results = jsonDecode(response.body) as List<dynamic>;
+      if (results.isEmpty) {
+        throw StateError('No place found. Try a nearby landmark or full address.');
+      }
+      final result = results.first as Map<String, dynamic>;
+      final latitude = double.tryParse(result['lat']?.toString() ?? '');
+      final longitude = double.tryParse(result['lon']?.toString() ?? '');
+      if (latitude == null || longitude == null) {
+        throw StateError('The place search returned no usable coordinates.');
+      }
+      _destination = LatLng(latitude, longitude);
+      _destinationLabel = (result['display_name'] ?? query).toString();
+      await _loadRoute();
+    } catch (exception) {
+      if (mounted) {
+        setState(() {
+          _error = exception.toString().replaceFirst('Bad state: ', '');
+          _status = 'Route unavailable';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _fetchRoute() async {
+    if (_destination == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _status = 'Loading walking route';
+      _guidance = false;
+    });
+    try {
+      await _loadRoute();
+    } catch (exception) {
+      if (mounted) {
+        setState(() {
+          _error = exception.toString().replaceFirst('Bad state: ', '');
+          _status = 'Route unavailable';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _loadRoute() async {
+    final start = _position ?? await getPosition();
+    final target = _destination;
+    if (start == null || target == null) {
+      throw StateError('Current location or destination is unavailable.');
+    }
+    if (mounted) setState(() => _position = start);
+
+    // OpenStreetMap's community foot-routing instance; no Google Maps SDK or key.
+    final uri = Uri.https(
+      'routing.openstreetmap.de',
+      '/routed-foot/route/v1/driving/${start.longitude},${start.latitude};${target.longitude},${target.latitude}',
+      {
+        'overview': 'full',
+        'geometries': 'geojson',
+        'steps': 'true',
+        'alternatives': 'false',
+      },
+    );
+    final response = await http.get(uri, headers: {
+      'User-Agent': 'BlindStick Companion/1.0 (com.vimal.blindstick)',
+    }).timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw StateError('Walking directions are temporarily unavailable. Check your connection and try again.');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final routes = body['routes'] as List<dynamic>? ?? [];
+    if (routes.isEmpty) {
+      throw StateError('No walking route was found for those points.');
+    }
+    final route = routes.first as Map<String, dynamic>;
+    final geometry = route['geometry'] as Map<String, dynamic>;
+    final coordinates = geometry['coordinates'] as List<dynamic>;
+    final points = coordinates.map((item) {
+      final pair = item as List<dynamic>;
+      return LatLng((pair[1] as num).toDouble(), (pair[0] as num).toDouble());
+    }).toList();
+    final legs = route['legs'] as List<dynamic>? ?? [];
+    final rawSteps = legs.isEmpty ? <dynamic>[] : (legs.first['steps'] as List<dynamic>? ?? []);
+    final steps = <NavigationStep>[];
+    for (final raw in rawSteps) {
+      final step = raw as Map<String, dynamic>;
+      final maneuver = step['maneuver'] as Map<String, dynamic>? ?? {};
+      final location = maneuver['location'] as List<dynamic>?;
+      if (location == null || location.length < 2) continue;
+      steps.add(NavigationStep(
+        instruction: _instructionFor(
+          (maneuver['type'] ?? '').toString(),
+          (maneuver['modifier'] ?? '').toString(),
+          (step['name'] ?? '').toString(),
+          maneuver['exit'] is num ? (maneuver['exit'] as num).toInt() : null,
+        ),
+        location: LatLng((location[1] as num).toDouble(), (location[0] as num).toDouble()),
+        distanceMeters: (step['distance'] as num?)?.toDouble() ?? 0,
+      ));
+    }
+    if (points.isEmpty || steps.isEmpty) {
+      throw StateError('The routing service returned an incomplete route.');
+    }
+    if (!mounted) return;
+    setState(() {
+      _routePoints = points;
+      _steps = steps;
+      _distanceMeters = (route['distance'] as num?)?.toDouble();
+      _durationSeconds = (route['duration'] as num?)?.toDouble();
+      _status = 'Walking route ready';
+      _nextStepIndex = steps.length > 1 ? 1 : 0;
+      _guidance = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || points.isEmpty) return;
+      try {
+        _mapController.fitCamera(
+          CameraFit.coordinates(coordinates: points, padding: const EdgeInsets.all(36)),
+        );
+      } catch (_) {
+        // The route and written instructions remain available if fitting fails.
+      }
+    });
+    await stick.announce('Walking route found to ${_destinationLabel ?? 'your destination'}. ${_routeSummary()}');
+  }
+
+  String _instructionFor(String type, String modifier, String road, int? exit) {
+    final street = road.isEmpty ? '' : ' onto $road';
+    switch (type) {
+      case 'depart':
+        return 'Start walking${road.isEmpty ? '' : ' on $road'}.';
+      case 'arrive':
+        return 'You have arrived at your destination.';
+      case 'roundabout':
+      case 'rotary':
+        return 'At the roundabout, take exit ${exit ?? 1}${street}.';
+      case 'merge':
+        return 'Merge ${modifier.isEmpty ? 'ahead' : modifier}$street.';
+      case 'fork':
+        return 'At the fork, keep ${modifier.isEmpty ? 'straight' : modifier}$street.';
+      case 'continue':
+      case 'new name':
+        return 'Continue walking${street}.';
+      case 'turn':
+      case 'on ramp':
+      case 'off ramp':
+      case 'end of road':
+      case 'notification':
+        return 'Turn ${modifier.isEmpty ? 'ahead' : modifier}$street.';
+      default:
+        return 'Continue walking${street}.';
+    }
+  }
+
+  String _routeSummary() {
+    final distance = _distanceMeters;
+    final duration = _durationSeconds;
+    if (distance == null || duration == null) return 'Follow the spoken directions and stay aware of your surroundings.';
+    final distanceText = distance >= 1000
+        ? '${(distance / 1000).toStringAsFixed(1)} kilometres'
+        : '${distance.round()} metres';
+    return 'About $distanceText and ${(duration / 60).ceil()} minutes on the mapped route.';
+  }
+
+  Future<void> _startGuidance() async {
+    if (_steps.isEmpty) return;
+    setState(() {
+      _guidance = true;
+      _nextStepIndex = _steps.length > 1 ? 1 : 0;
+    });
+    await stick.announce('Spoken route guidance started. ${_routeSummary()}');
+    if (_nextStepIndex < _steps.length) await _speakCurrentStep();
+  }
+
+  Future<void> _speakCurrentStep() async {
+    if (!_guidance || _nextStepIndex >= _steps.length) return;
+    await stick.announce('Next instruction. ${_steps[_nextStepIndex].instruction}');
+  }
+
+  Future<void> _finishGuidance() async {
+    setState(() => _guidance = false);
+    await stick.announce('You have reached the final mapped maneuver. Confirm your surroundings before proceeding.');
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    _query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final center = _position == null
+        ? const LatLng(20.5937, 78.9629)
+        : LatLng(_position!.latitude, _position!.longitude);
+    final markers = <Marker>[
+      if (_position != null)
+        Marker(
+          point: LatLng(_position!.latitude, _position!.longitude),
+          width: 48,
+          height: 48,
+          child: const Semantics(label: 'Your current location', child: Icon(Icons.my_location, color: Colors.blue, size: 34)),
+        ),
+      if (_destination != null)
+        Marker(
+          point: _destination!,
+          width: 48,
+          height: 48,
+          child: const Semantics(label: 'Destination', child: Icon(Icons.location_pin, color: red, size: 40)),
+        ),
+    ];
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Walking navigation'),
+        actions: [
+          IconButton(
+            tooltip: 'Accessibility settings',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
+            icon: const Icon(Icons.accessibility_new),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.34,
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(initialCenter: center, initialZoom: _position == null ? 5 : 15),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.vimal.blindstick',
+                ),
+                if (_routePoints.isNotEmpty)
+                  PolylineLayer(
+                    polylines: [Polyline(points: _routePoints, strokeWidth: 5, color: teal)],
+                  ),
+                MarkerLayer(markers: markers),
+                const RichAttributionWidget(
+                  attributions: [TextSourceAttribution('© OpenStreetMap contributors')],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+              children: [
+                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _query,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _searchAndRoute(),
+                  decoration: const InputDecoration(
+                    labelText: 'Destination',
+                    hintText: 'Type a place or address; tap Search',
+                    prefixIcon: Icon(Icons.place_outlined),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 58,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _searchAndRoute,
+                    icon: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
+                    label: Text(_busy ? 'Finding route…' : 'Search and show route', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                if (_destinationLabel != null) ...[
+                  const SizedBox(height: 12),
+                  Text('Destination: $_destinationLabel', style: const TextStyle(fontWeight: FontWeight.w700, color: navy)),
+                  if (_distanceMeters != null && _durationSeconds != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(_routeSummary(), style: const TextStyle(fontSize: 16)),
+                    ),
+                ],
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Semantics(liveRegion: true, child: Text(_error!, style: const TextStyle(color: red, fontSize: 15))),
+                  ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 60,
+                  child: FilledButton.icon(
+                    onPressed: _steps.isEmpty || _busy ? null : _startGuidance,
+                    icon: Icon(_guidance ? Icons.volume_up : Icons.record_voice_over),
+                    label: Text(_guidance ? 'Spoken guidance active' : 'Start spoken directions', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                if (_destination != null)
+                  TextButton.icon(
+                    onPressed: _busy ? null : _fetchRoute,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Recalculate route from current location'),
+                  ),
+                const SizedBox(height: 10),
+                const Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
+                if (_steps.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text('Search for a destination to show spoken instructions.'),
+                  )
+                else
+                  ..._steps.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final step = entry.value;
+                    return Semantics(
+                      label: 'Instruction ${index + 1}: ${step.instruction}',
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: index == _nextStepIndex && _guidance ? teal : const Color(0xFFEAF7F4),
+                          foregroundColor: navy,
+                          child: Text('${index + 1}'),
+                        ),
+                        title: Text(step.instruction),
+                        subtitle: Text('${step.distanceMeters.round()} metres to this maneuver'),
+                        onTap: () => stick.announce(step.instruction),
+                      ),
+                    );
+                  }),
+                const SizedBox(height: 12),
+                const Text(
+                  'Accessibility and safety: spoken directions depend on GPS, network access, and this public routing service. The route is a guide, not a guarantee that a footpath or crossing is safe. Keep using your usual mobility method, confirm crossings with your established technique, and stop if the spoken location seems wrong.',
+                  style: TextStyle(color: Color(0xFF59697B)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
 class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
