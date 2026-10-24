@@ -47,6 +47,8 @@ class CameraVisionService extends ChangeNotifier {
   int _pedestrianCandidateFrames = 0;
   int _pedestrianMissingFrames = 0;
   int personCount = 0;
+  final List<int> _personCountSamples = <int>[];
+  bool _frameStreamWarningSpoken = false;
   List<Map<String, dynamic>> pedestrianSignals = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> detections = <Map<String, dynamic>>[];
 
@@ -173,6 +175,10 @@ class CameraVisionService extends ChangeNotifier {
     );
     _running = true;
     _failedFrames = 0;
+    _frameStreamWarningSpoken = false;
+    _personCountSamples.clear();
+    personCount = 0;
+    crowdLevel = 'unknown';
     pedestrianSignalState = 'unknown';
     vehicleSignalState = 'unknown';
     pedestrianSignalLost = false;
@@ -222,8 +228,22 @@ class CameraVisionService extends ChangeNotifier {
       detections = rawDetections.whereType<Map>().map((item) {
         return item.map((key, value) => MapEntry(key.toString(), value));
       }).toList(growable: false);
-      personCount = (result['personCount'] as num?)?.toInt() ?? 0;
-      crowdLevel = (result['crowdLevel'] ?? 'unknown').toString();
+      personCount = ((result['personCount'] as num?)?.toInt() ?? 0).clamp(0, 100);
+      _personCountSamples.add(personCount);
+      if (_personCountSamples.length > 5) _personCountSamples.removeAt(0);
+      final sortedPersonCounts = List<int>.of(_personCountSamples)..sort();
+      final stabilizedPersonCount = sortedPersonCounts[sortedPersonCounts.length ~/ 2];
+      crowdLevel = stabilizedPersonCount >= 5
+          ? 'high'
+          : stabilizedPersonCount >= 3
+              ? 'medium'
+              : 'low';
+      final wasRecoveringFromFrameLoss = _failedFrames >= 3;
+      _failedFrames = 0;
+      if (wasRecoveringFromFrameLoss && _frameStreamWarningSpoken) {
+        _frameStreamWarningSpoken = false;
+        speak('Camera frames have resumed. Treat any new detection as an estimate and confirm your surroundings using your usual mobility method.').catchError((_) {});
+      }
       final signalRows = result['pedestrianSignals'] as List<dynamic>? ?? <dynamic>[];
       pedestrianSignals = signalRows.whereType<Map>().map((item) {
         return item.map((key, value) => MapEntry(key.toString(), value));
@@ -241,6 +261,26 @@ class CameraVisionService extends ChangeNotifier {
       _processSafetyCue();
     } catch (error) {
       _failedFrames++;
+      if (_failedFrames >= 3) {
+        final previouslyHadSignal = pedestrianSignalState != 'unknown' ||
+            pedestrianSignals.isNotEmpty;
+        detections = <Map<String, dynamic>>[];
+        pedestrianSignals = <Map<String, dynamic>>[];
+        personCount = 0;
+        crowdLevel = 'unknown';
+        trafficState = 'not_detected';
+        vehicleSignalState = 'unknown';
+        pedestrianSignalState = 'unknown';
+        if (previouslyHadSignal) pedestrianSignalLost = true;
+        _personCountSamples.clear();
+        if (!_frameStreamWarningSpoken) {
+          _frameStreamWarningSpoken = true;
+          HapticFeedback.heavyImpact();
+          vibrate(300).catchError((_) {});
+          speak('Warning. Camera frame updates have stopped. Object, crowd and signal estimates are unavailable. Stop somewhere safe and do not rely on the last camera result.').catchError((_) {});
+          logEvent('Camera frame stream lost; AI detections marked unavailable').catchError((_) {});
+        }
+      }
       if (_failedFrames == 1 || _failedFrames % 4 == 0) {
         _cameraReachable = false;
         status =
