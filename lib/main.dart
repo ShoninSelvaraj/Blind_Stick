@@ -259,11 +259,13 @@ class PairingService {
 }
 
 class BleStickService extends ChangeNotifier {
- final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<ScanResult>>? scanSub; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub; StreamSubscription<BluetoothAdapterState>? adapterSub;
- bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; DateTime? lastSpoken; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;
+ final FlutterTts tts=FlutterTts(); final StickTelemetry telemetry=StickTelemetry(); BluetoothDevice? device; BluetoothCharacteristic? telemetryChar, commandChar; StreamSubscription<List<int>>? notifySub; StreamSubscription<BluetoothConnectionState>? connectionSub;
+ bool scanning=false,connected=false,assistance=false; String status='Stick not connected'; String? lastError; final List<String> events=[]; String _lastWarning=''; String _packetBuffer='';Timer? _freshnessTimer;bool _staleWarningSpoken=false;
  BleStickService(){tts.setLanguage('en-IN');tts.setSpeechRate(0.46);_freshnessTimer=Timer.periodic(const Duration(seconds:1),(_){if(!connected||!assistance)return;final last=telemetry.receivedAt;final stale=last==null||DateTime.now().difference(last)>const Duration(seconds:4);if(stale&&!_staleWarningSpoken){_staleWarningSpoken=true;lastError='Live stick data stopped. Do not rely on the app for obstacle warnings.';_event('Live sensor data stopped');HapticFeedback.heavyImpact();_speak('Warning. Live stick data has stopped. Stop and use your usual safe mobility method.');notifyListeners();}else if(!stale&&_staleWarningSpoken){_staleWarningSpoken=false;lastError=null;notifyListeners();}});}
  Future<void> scanAndConnect() async {
-  if(scanning)return; scanning=true;status='Looking for your stick';lastError=null;notifyListeners();
+  if(scanning)return;
+  if(connected)await disconnect();
+  scanning=true;status='Looking for your stick';lastError=null;notifyListeners();
   try{
    final scanPermission=await Permission.bluetoothScan.request();
    final connectPermission=await Permission.bluetoothConnect.request();
@@ -280,9 +282,10 @@ class BleStickService extends ChangeNotifier {
    if(svc==null)throw Exception('Firmware service UUID does not match the app.');
    for(final ch in svc.characteristics){if(ch.characteristicUuid==Guid(telemetryUuid))telemetryChar=ch;if(ch.characteristicUuid==Guid(commandUuid))commandChar=ch;}
    if(telemetryChar==null)throw Exception('Telemetry characteristic is missing.');
+   if(commandChar==null)throw Exception('Command characteristic is missing.');
    await telemetryChar!.setNotifyValue(true); notifySub?.cancel();notifySub=telemetryChar!.onValueReceived.listen(_handlePacket);
    status='Stick connected';lastError=null;await _command({'cmd':'hello','protocol':1});
-  }catch(e){status='Could not connect';lastError=e.toString().replaceFirst('Exception: ','');connected=false;}
+  }catch(e){await device?.disconnect();status='Could not connect';lastError=e.toString().replaceFirst('Exception: ','');connected=false;}
   finally{await FlutterBluePlus.stopScan();scanning=false;notifyListeners();}
  }
  void _handlePacket(List<int> bytes){
@@ -318,7 +321,7 @@ class BleStickService extends ChangeNotifier {
  Future<void> announce(String s)=>_speak(s);
  void _event(String s){final now=DateTime.now();final stamp='${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';events.insert(0,'$stamp · $s');if(events.length>50)events.removeLast();final user=FirebaseAuth.instance.currentUser;if(user!=null){ApiService.instance.event(user.uid,'system',s);}}
  Future<void> disconnect()async{await device?.disconnect();connected=false;assistance=false;status='Stick disconnected';notifyListeners();}
- @override void dispose(){scanSub?.cancel();notifySub?.cancel();connectionSub?.cancel();adapterSub?.cancel();device?.disconnect();tts.stop();_freshnessTimer?.cancel();super.dispose();}
+ @override void dispose(){notifySub?.cancel();connectionSub?.cancel();device?.disconnect();tts.stop();_freshnessTimer?.cancel();super.dispose();}
 }
 final stick=BleStickService();
 
