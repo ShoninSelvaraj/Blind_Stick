@@ -760,6 +760,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   double? _distanceMeters;
   double? _durationSeconds;
   bool _busy = false;
+  bool _startingGuidance = false;
   bool _guidance = false;
   bool _offRoute = false;
   bool _poorAccuracyAnnounced = false;
@@ -1286,12 +1287,13 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   }
 
   Future<void> _startGuidance() async {
-    if (_busy || _guidance || !mounted) return;
+    if (_startingGuidance || _guidance || !mounted) return;
     if (_routePoints.isEmpty || _steps.isEmpty) {
       setState(() => _error = 'Find a walking route before starting navigation.');
       await _announceSafely('Cannot start spoken navigation. Find a route first.');
       return;
     }
+    setState(() => _startingGuidance = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
         if (mounted) setState(() {
@@ -1358,6 +1360,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
         _error = 'Navigation could not start. Check that GPS is on and location permission is allowed, then try again.';
       });
       await _announceSafely('Navigation could not start. Check your GPS and location permission.');
+    } finally {
+      if (mounted) setState(() => _startingGuidance = false);
     }
   }
 
@@ -1422,14 +1426,14 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     final previewIndex = _guidance ? _nextStepIndex : _firstUpcomingManeuverIndex();
     final previewStep = previewIndex < _steps.length ? _steps[previewIndex] : null;
     final hasRoute = _destination != null && _steps.isNotEmpty;
-    final primaryLabel = _busy
+    final primaryLabel = (_busy || _startingGuidance)
         ? 'Preparing route…'
         : _guidance
             ? 'Pause navigation'
             : hasRoute
                 ? 'Start navigation'
                 : 'Find route and start directions';
-    final VoidCallback? primaryAction = _busy
+    final VoidCallback? primaryAction = (_busy || _startingGuidance)
         ? null
         : _guidance
             ? _stopGuidance
@@ -1641,7 +1645,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                       height: 58,
                       child: FilledButton.icon(
                         onPressed: primaryAction,
-                        icon: _busy
+                        icon: (_busy || _startingGuidance)
                             ? const SizedBox(width: 19, height: 19, child: CircularProgressIndicator(strokeWidth: 2))
                             : Icon(_guidance ? Icons.pause_circle_filled : Icons.navigation_rounded),
                         label: Text(primaryLabel, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
