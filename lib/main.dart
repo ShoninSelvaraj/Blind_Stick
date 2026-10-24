@@ -530,9 +530,18 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       locationSettings: settings,
     ).listen(_onPosition, onError: (_) {
       if (!mounted) return;
-      setState(() => _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.');
-      if (_guidance) {
-        stick.announce('Warning. Live GPS updates stopped. Stop in a safe place and check your location and permissions.');
+      final guidanceWasActive = _guidance;
+      setState(() {
+        _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.';
+        if (guidanceWasActive) {
+          _guidance = false;
+          _status = 'GPS update lost — guidance paused';
+        }
+      });
+      if (guidanceWasActive) {
+        _positionSubscription?.cancel();
+        HapticFeedback.heavyImpact();
+        stick.announce('Warning. Live GPS updates stopped, so spoken turn guidance is paused. Stop in a safe place and check your location and permissions.');
       }
     });
   }
@@ -814,10 +823,17 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'Loading walking route';
+      _status = 'Getting current location for a new route';
       _guidance = false;
     });
     try {
+      // Stop background navigation mode and request a fresh origin; never reuse a stale GPS fix for rerouting.
+      await _startPositionStream(guidanceMode: false);
+      final current = await getPosition();
+      if (current == null) {
+        throw StateError('Current location is unavailable. Turn on location and try again from a safe place.');
+      }
+      if (mounted) setState(() => _position = current);
       await _loadRoute();
     } catch (exception) {
       if (mounted) {
@@ -825,6 +841,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           _error = exception.toString().replaceFirst('Bad state: ', '');
           _status = 'Route unavailable';
         });
+        await stick.announce('The route could not be recalculated. Stop safely and check your current location.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
