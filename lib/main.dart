@@ -276,7 +276,15 @@ class _LoginPageState extends State<LoginPage> {
 const String expectedStickDeviceId = 'blindstick_companion-esp32cam';
 
 bool isCompatibleStickTelemetry(Map<String, dynamic> packet) =>
-    packet['protocol'] == 1 && packet['device'] == expectedStickDeviceId;
+    packet['protocol'] == 1 &&
+    packet['device'] == expectedStickDeviceId &&
+    packet['assistance'] is bool &&
+    packet['camera_ready'] is bool &&
+    packet['camera_frame_available'] is bool &&
+    packet['detection_status'] is String &&
+    packet['range_sensor_status'] is String &&
+    const {'fresh', 'unavailable'}.contains(packet['range_sensor_status']) &&
+    packet['battery_status'] is String;
 
 class StickTelemetry {
  double? distanceCm;
