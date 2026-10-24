@@ -527,7 +527,7 @@ class BleStickService extends ChangeNotifier {
    // Telemetry is newline-delimited JSON and can exceed the default 20-byte
    // BLE payload. Negotiate a larger MTU so a JSON packet is not silently
    // truncated before the newline reaches the stream.
-   try { await device!.requestMtu(256); } catch (_) {
+   try { await device!.requestMtu(384); } catch (_) {
     // Some BLE stacks do not support MTU negotiation; packet validation below
     // will report malformed/incomplete data instead of accepting it.
    }
