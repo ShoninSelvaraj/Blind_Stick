@@ -1,4 +1,4 @@
-# DishaFlow API backend (database deliberately not included)
+# BlindStick Companion API backend (database deliberately not included)
 
 Requires Node.js 20+. This is an actual REST service, not just API documentation. It provides location ingestion, event ingestion, SOS acceptance, patient status and event history. Storage is in memory so the team can test integration immediately; data is lost when the process restarts. Replace the Map-backed functions with your chosen database repository before deployment.
 
