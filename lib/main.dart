@@ -380,6 +380,7 @@ class BleStickService extends ChangeNotifier {
  }
  Future<void> _command(Map<String,dynamic> cmd)async{if(!connected||commandChar==null)return;final bytes=utf8.encode('${jsonEncode(cmd)}\n');await commandChar!.write(bytes,withoutResponse:commandChar!.properties.writeWithoutResponse&&!commandChar!.properties.write);}
  Future<void> setAssistance(bool on)async{assistance=on;await _command({'cmd':on?'start':'stop'});_event(on?'Assistance started':'Assistance paused');if(on)_speak('Assistance started. Stay aware of your surroundings.');notifyListeners();}
+ Future<void> pulseVibration({int durationMs=180})async{if(!connected||!assistance||commandChar==null)return;try{await _command({'cmd':'vibrate','duration_ms':durationMs});}catch(_){}}
  Future<void> _speak(String s)async{if(!voiceGuidanceEnabled)return;await tts.stop();await tts.speak(s);}
  Future<void> announce(String s)=>_speak(s);
  void _event(String s){final now=DateTime.now();final stamp='${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';events.insert(0,'$stamp · $s');if(events.length>50)events.removeLast();final user=FirebaseAuth.instance.currentUser;if(user!=null){ApiService.instance.event(user.uid,'system',s);}}
