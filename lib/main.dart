@@ -1359,7 +1359,9 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _selectTab(int index) async {
   if(index<0||index>3)return;
   setState(()=>_selectedTab=index);
-  await stick.announce('${_tabTitle(index)} screen.');
+  if (!MediaQuery.of(context).accessibleNavigation) {
+   await stick.announce('${_tabTitle(index)} screen.');
+  }
  }
 
  Widget _homeTab(StickTelemetry t)=>ListView(
