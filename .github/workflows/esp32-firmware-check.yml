@@ -37,7 +37,9 @@ jobs:
 
       - name: Compile firmware
         run: |
+          mkdir -p "$RUNNER_TEMP/esp32_cam"
+          cp firmware/esp32_cam/esp32_cam_ble_bridge.ino "$RUNNER_TEMP/esp32_cam/esp32_cam.ino"
           arduino-cli compile \
             --fqbn esp32:esp32:esp32cam \
             --warnings all \
-            firmware/esp32_cam
+            "$RUNNER_TEMP/esp32_cam"
