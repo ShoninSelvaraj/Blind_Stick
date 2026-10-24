@@ -38,7 +38,7 @@ class BlindStickApp extends StatelessWidget {
   const BlindStickApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'DishaFlow', debugShowCheckedModeBanner: false,
+    title: 'BlindStick Companion', debugShowCheckedModeBanner: false,
     theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: teal), scaffoldBackgroundColor: const Color(0xFFF7FAFC), fontFamily: 'Roboto',
       inputDecorationTheme: InputDecorationTheme(filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFDCE5E9))), contentPadding: const EdgeInsets.all(16))),
     home: const AuthGate(),
@@ -140,10 +140,10 @@ class _LoginPageState extends State<LoginPage> {
  }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
- const SizedBox(height:20),const Text('DishaFlow',style:TextStyle(fontSize:38,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
+ const SizedBox(height:20),const Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
  Text(createAccount?'Create your account':'Welcome back',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
  if(createAccount)...[
-  const Text('Choose what you want to do with DishaFlow',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
+  const Text('Choose how you’d like to use this app',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
   const SizedBox(height:12),
   _roleChoice(Role.patient,'Use my smart stick','Navigate, hear safety alerts and ask for help.',Icons.accessibility_new_rounded),
   const SizedBox(height:10),
@@ -293,7 +293,7 @@ class BleStickService extends ChangeNotifier {
    await FlutterBluePlus.startScan(timeout:const Duration(seconds:12),withServices:[Guid(serviceUuid)]);
    final results=await FlutterBluePlus.scanResults.firstWhere((r)=>r.any((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid)))).timeout(const Duration(seconds:12),onTimeout:()=> <ScanResult>[]);
    final match=results.where((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid))).toList();
-   if(match.isEmpty){status='Stick not found';lastError='No device advertising the DishaFlow service was found. Check that the stick is powered on and running the matching firmware.';return;}
+   if(match.isEmpty){status='Stick not found';lastError='No device advertising the BlindStick Companion service was found. Check that the stick is powered on and running the matching firmware.';return;}
    device=match.first.device; await device!.connect(timeout:const Duration(seconds:15));
    connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){connected=s==BluetoothConnectionState.connected;if(!connected){assistance=false;status='Connection lost — stick alerts may be unavailable';_event('Connection lost');}else{status='Stick connected';_event('Stick connected');}notifyListeners();});
    final services=await device!.discoverServices(); BluetoothService? svc;
@@ -410,7 +410,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
  Future<void> _sos()async{final ok=await showDialog<bool>(context:context,builder:(c)=>AlertDialog(title:const Text('Send emergency alert?'),content:const Text('This saves an SOS alert to your linked patient record. If Firebase push delivery has been deployed and configured, linked caregivers will also be notified. Delivery or receipt cannot be guaranteed.'),actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Send SOS'))]));if(ok!=true)return;final p=position??await getPosition();final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');if(!mounted)return;await showDialog<void>(context:context,builder:(c)=>AlertDialog(title:Text(sent?'SOS submitted':'SOS not delivered'),content:Text(sent?'The alert was saved to Firestore. This does not confirm that a caregiver has seen it. Use your usual emergency contact method too if you are in danger.':'The alert could not be saved. Check internet and Firestore permissions, or call your emergency contact directly.'),actions:[TextButton(onPressed:()=>Navigator.pop(c),child:const Text('OK'))]));}
  @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
- @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('DishaFlow · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
+ @override Widget build(BuildContext c){final t=stick.telemetry;return Scaffold(appBar:AppBar(title:const Text('BlindStick Companion · My journey',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
   Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Hello, ${widget.user.name}',style:const TextStyle(color:Colors.white70,fontSize:16)),const SizedBox(height:6),const Text('Ready when you are.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),const SizedBox(height:14),Row(children:[Icon(stick.connected?Icons.bluetooth_connected:Icons.bluetooth_disabled,color:stick.connected?const Color(0xFF9FF0D0):Colors.orangeAccent),const SizedBox(width:8),Expanded(child:Text(stick.status,style:const TextStyle(color:Colors.white,fontSize:14)))])])),const SizedBox(height:16),
   Row(children:[Expanded(child:_statusTile('Obstacle range',t.distanceCm==null?'Waiting': '${t.distanceCm!.round()} cm',t.urgent?red:t.caution?Colors.orange:teal,Icons.radar)),const SizedBox(width:10),Expanded(child:_statusTile('Camera',t.receivedAt==null?'Waiting for stick':t.detectionStatus=='model_not_installed'?'AI model not installed':t.object!='Waiting for device data'?t.object:t.cameraFrameAvailable==true?'Camera active; no detection model':'Camera unavailable',teal,Icons.camera_alt_outlined))]),const SizedBox(height:12),
   if(stick.lastError!=null)Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),child:Text(stick.lastError!,style:const TextStyle(color:red))),
@@ -435,7 +435,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
  StreamSubscription<String>? _tokenRefresh;
  @override void initState(){super.initState();_registerPushToken();_foregroundMessages=FirebaseMessaging.onMessage.listen((message){
   if(!mounted)return;
-  final title=message.notification?.title??'DishaFlow update';
+  final title=message.notification?.title??'BlindStick Companion update';
   final body=message.notification?.body??'A new update has arrived.';
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$title: $body'),duration:const Duration(seconds:6)));
  });}
@@ -468,7 +468,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
   }finally{if(mounted)setState(()=>pairing=false);}
  }
  @override Widget build(BuildContext c)=>Scaffold(
-  appBar:AppBar(title:const Text('DishaFlow · Support',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings and accessibility',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),
+  appBar:AppBar(title:const Text('BlindStick Companion · Support',style:TextStyle(fontWeight:FontWeight.w800)),actions:[IconButton(tooltip:'Settings and accessibility',onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),icon:const Icon(Icons.settings_outlined))]),
   body:StreamBuilder<DocumentSnapshot<Map<String,dynamic>>>(
    stream:FirebaseFirestore.instance.collection('pairingClaims').doc(widget.user.uid).snapshots(),
    builder:(context,claimSnapshot){
@@ -478,7 +478,7 @@ class _CaregiverPageState extends State<CaregiverPage>{
      Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Icon(Icons.favorite_outline,color:Color(0xFF9FF0D0),size:36),SizedBox(height:14),
       Text('Stay connected, with permission.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
-      SizedBox(height:8),Text('Enter the one-time code shared by the person using DishaFlow. They control who can connect.',style:TextStyle(color:Colors.white70,fontSize:15))
+      SizedBox(height:8),Text('Enter the one-time code shared by the person using BlindStick Companion. They control who can connect.',style:TextStyle(color:Colors.white70,fontSize:15))
      ])),
      const SizedBox(height:22),const Text('Pair with someone',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
      TextField(controller:codeController,keyboardType:TextInputType.number,maxLength:8,autofillHints:const [],textInputAction:TextInputAction.done,onSubmitted:(_)=>_pair(),decoration:const InputDecoration(labelText:'8-digit pairing code',hintText:'Enter the shared code',prefixIcon:Icon(Icons.key_outlined))),
@@ -553,7 +553,7 @@ class _SettingsPageState extends State<SettingsPage>{
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
   body:ListView(padding:const EdgeInsets.all(20),children:[
-   const Text('Set DishaFlow up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
+   const Text('Set BlindStick Companion up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('These controls work on this phone and are saved automatically.'),
    const SizedBox(height:24),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Spoken safety guidance',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Speak warnings and important status messages'),value:voice,onChanged:_saveVoice),
@@ -562,11 +562,11 @@ class _SettingsPageState extends State<SettingsPage>{
    const SizedBox(height:4),const Text('Make labels and instructions easier to read. Android display and TalkBack settings also continue to work.'),
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
-   const SizedBox(height:22),OutlinedButton.icon(onPressed:()=>stick.announce('DishaFlow voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
+   const SizedBox(height:22),OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
    const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>FirebaseAuth.instance.signOut(),icon:const Icon(Icons.logout),label:const Text('Sign out')),
    const SizedBox(height:24),const Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
-   const SizedBox(height:8),const Text('The stick must advertise the DishaFlow BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
+   const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
    const SizedBox(height:20),const Text('Safety note',style:TextStyle(color:Color(0xFF64748B))),
-   const Text('DishaFlow is a companion prototype, not a certified mobility aid. Keep using your usual mobility skills and emergency arrangements. The app cannot guarantee GPS accuracy, network availability or emergency delivery.',style:TextStyle(color:Color(0xFF64748B))),
+   const Text('BlindStick Companion is a companion prototype, not a certified mobility aid. Keep using your usual mobility skills and emergency arrangements. The app cannot guarantee GPS accuracy, network availability or emergency delivery.',style:TextStyle(color:Color(0xFF64748B))),
   ]));
 }
