@@ -14,7 +14,7 @@ plugins {
 def bundledVisionAssets = file("$projectDir/src/main/assets/vision-model")
 def cocoModelAsset = new File(bundledVisionAssets, "detect.tflite")
 def signalModelAsset = new File(bundledVisionAssets, "pedestrian-signal-yolo26n-7cls-int8-320.tflite")
-def cocoModelArchive = new File(temporaryDir, "coco-ssd-mobile-net.zip")
+def cocoModelArchive = new File(buildDir, "tmp/coco-ssd-mobile-net.zip")
 def signalModelUrl = "https://raw.githubusercontent.com/25-p-project-team-6/VIA-Safe-Crosswalk/main/app/src/main/assets/best_yolo26n_7cls_v2_raw_int8_320.tflite"
 def signalModelSha256 = "36243860db3e4c08346c9be4a13c1be36a5e01e2088b11eca7ad7233938a40ef"
 def cocoModelUrl = "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
