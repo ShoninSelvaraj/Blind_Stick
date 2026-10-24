@@ -66,7 +66,7 @@ class BlindStickApp extends StatelessWidget {
       builder: (context, child) => ValueListenableBuilder<double>(
         valueListenable: appTextScale,
         builder: (context, scale, _) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(MediaQuery.textScalerOf(context).scale(1.0) * scale)),
           child: child ?? const SizedBox.shrink(),
         ),
       ),
