@@ -173,19 +173,43 @@ class CameraVisionService extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> _cameraGet(String path) async {
+    if (endpoint == defaultEndpoint) {
+      final response = await _channel.invokeMapMethod<String, dynamic>(
+        'cameraHttpGet',
+        <String, Object>{'url': '$endpoint$path'},
+      ).timeout(const Duration(seconds: 6));
+      if (response == null) throw StateError('The camera request returned no response.');
+      final statusCode = (response['statusCode'] as num?)?.toInt() ?? 0;
+      final bodyBytes = response['bodyBytes'] as List<int>? ?? <int>[];
+      final body = response['body']?.toString() ?? '';
+      return <String, dynamic>{
+        'statusCode': statusCode,
+        'bodyBytes': bodyBytes,
+        'body': body,
+      };
+    }
+    final response = await http
+        .get(Uri.parse('$endpoint$path'))
+        .timeout(const Duration(seconds: 5));
+    return <String, dynamic>{
+      'statusCode': response.statusCode,
+      'bodyBytes': response.bodyBytes,
+      'body': response.body,
+    };
+  }
+
   Future<void> checkCamera() async {
     try {
       final preferences = await SharedPreferences.getInstance();
       endpoint = _normalizeEndpoint(
         preferences.getString('camera_base_url') ?? endpoint,
       );
-      final response = await http
-          .get(Uri.parse('$endpoint/status'))
-          .timeout(const Duration(seconds: 4));
-      if (response.statusCode != 200) {
-        throw StateError('Camera returned HTTP ${response.statusCode}.');
+      final response = await _cameraGet('/status');
+      if (response['statusCode'] != 200) {
+        throw StateError('Camera returned HTTP ${response['statusCode']}.');
       }
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(response['body'] as String) as Map<String, dynamic>;
       _cameraReachable = true;
       final assistanceActive = data['assistance'] == true;
       status = data['camera_ready'] == true
@@ -249,18 +273,16 @@ class CameraVisionService extends ChangeNotifier {
     if (!_running || _processing || !_modelReady) return;
     _processing = true;
     try {
-      final response = await http
-          .get(Uri.parse('$endpoint/capture'))
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode != 200) {
-        if (response.statusCode == 409) {
+      final response = await _cameraGet('/capture');
+      if (response['statusCode'] != 200) {
+        if (response['statusCode'] == 409) {
           throw StateError('Start stick assistance before requesting camera frames.');
         }
-        throw StateError('Camera frame request returned HTTP ${response.statusCode}.');
+        throw StateError('Camera frame request returned HTTP ${response['statusCode']}.');
       }
       final result = await _channel.invokeMapMethod<String, dynamic>(
         'detectObjects',
-        <String, Object>{'jpegBytes': response.bodyBytes},
+        <String, Object>{'jpegBytes': response['bodyBytes'] as List<int>},
       );
       if (result == null) throw StateError('The on-device model returned no result.');
       final rawDetections = result['detections'] as List<dynamic>? ?? <dynamic>[];
