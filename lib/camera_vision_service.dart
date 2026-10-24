@@ -98,9 +98,11 @@ class CameraVisionService extends ChangeNotifier {
 
   Future<void> saveEndpoint(String value) async {
     final parsed = Uri.tryParse(value.trim());
-    if (parsed == null || parsed.scheme != 'http' || parsed.host.isEmpty) {
+    if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty ||
+        !(parsed.scheme == 'https' ||
+          (parsed.scheme == 'http' && parsed.host == '192.168.4.1'))) {
       throw const FormatException(
-        'Enter a complete camera URL such as http://192.168.4.1',
+        'Use https:// for remote endpoints, or the local camera URL http://192.168.4.1. Other cleartext HTTP hosts are blocked by Android network security.',
       );
     }
     endpoint = _normalizeEndpoint(parsed.toString());
