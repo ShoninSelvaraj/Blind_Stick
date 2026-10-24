@@ -83,6 +83,12 @@ The navigation screen provides a route preview, written turn steps, spoken dista
 
 On Android, starting spoken directions asks whether to enable background guidance. If the user allows it, the app uses Geolocator's foreground location service with a persistent notification while this route is active. If background permission is declined, the app gives foreground-only guidance and instructs the user to keep the app open and screen on. Leaving the navigation screen stops its location stream; stop or finish the route before leaving.
 
+## Background caregiver SOS monitoring without Cloud Functions
+
+When a caregiver is paired, they can choose **Enable background SOS alerts**. The app requests Android notification permission and starts a native foreground service with a persistent status notification. That service uses the signed-in Firebase client to listen to the caregiver's own pairing claim and only that linked patient's alert collection; new SOS records trigger a local Android notification. It does not send data to a third-party server and does not require Firebase Cloud Functions or a paid API.
+
+This is a best-effort zero-billing alternative, not FCM and not a guaranteed emergency delivery channel. It requires internet connectivity and notification permission. Android force-stop, device restart before the service is restored, OS/battery restrictions, sign-out, revoked permissions, or Firestore outages can interrupt it. The caregiver should verify that the persistent monitoring notification is present. A notification does not mean emergency services were contacted. The existing in-app alert stream remains available while the caregiver screen is open.
+
 ## SOS behavior without paid backend
 
 When the patient taps SOS, the app attempts to save an alert record to Firestore. When the caregiver app is open and connected, its Firestore listener can show the alert. This is not the same as a background push notification and does not mean the caregiver has seen it.
