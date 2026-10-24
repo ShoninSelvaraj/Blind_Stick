@@ -101,7 +101,8 @@ service cloud.firestore {
       (!exists(/databases/$(database)/documents/pairingCodes/$(code)) ||
        resource.data.patientUid == request.auth.uid)) ||
      (userRole(request.auth.uid) == 'caregiver' &&
-      resource.data.usedBy == null && resource.data.expiresAt > request.time));
+      (!exists(/databases/$(database)/documents/pairingCodes/$(code)) ||
+       (resource.data.usedBy == null && resource.data.expiresAt > request.time))));
    allow list: if false;
 
    allow create: if signedIn() &&
