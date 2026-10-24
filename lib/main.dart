@@ -1460,7 +1460,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
       child:Text('Traffic lamp estimate: ${vision.trafficState}. This does not confirm a pedestrian WALK signal.',style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
      ),
      const SizedBox(height:10),
-     Text('Pedestrian signal model',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:navy)),
+     const Text('Pedestrian signal model',style:TextStyle(fontSize:16,fontWeight:FontWeight.w900,color:Color(0xFF17233B))),
      const SizedBox(height:5),
      Semantics(
       liveRegion:true,
