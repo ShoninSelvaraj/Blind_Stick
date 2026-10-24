@@ -802,6 +802,9 @@ class CaregiverAlertMonitorService : Service() {
                     return@addSnapshotListener
                 }
                 if (!alertsPrimed) {
+                    // A cache-only snapshot is not authoritative. Wait for the first
+                    // server-backed snapshot so old cached alerts are not announced as new.
+                    if (snapshot.metadata.isFromCache) return@addSnapshotListener
                     seenAlertIds.addAll(snapshot.documents.map { it.id })
                     alertsPrimed = true
                     return@addSnapshotListener
