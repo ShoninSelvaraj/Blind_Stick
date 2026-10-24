@@ -32,6 +32,8 @@ class CameraVisionService extends ChangeNotifier {
   int _failedFrames = 0;
   DateTime _lastCueAt = DateTime.fromMillisecondsSinceEpoch(0);
   String _lastCueKey = '';
+  DateTime _lastLoggedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  String _lastLoggedCueKey = '';
 
   String endpoint = defaultEndpoint;
   String status = 'On-device AI model not prepared';
@@ -312,7 +314,7 @@ class CameraVisionService extends ChangeNotifier {
     // Do not let a lower-priority crowd/traffic cue suppress a new obstacle alert.
     // Repeat the same obstacle cue no more than once every 1.8 seconds.
     final shouldAnnounce = obstacle != null
-        ? (isNewCue || elapsed >= const Duration(milliseconds: 1800))
+        ? (isNewCue || elapsed >= const Duration(seconds: 4))
         : ((isNewCue || elapsed >= const Duration(seconds: 12)) &&
             elapsed >= const Duration(seconds: 4));
     if (shouldAnnounce) {
@@ -321,7 +323,13 @@ class CameraVisionService extends ChangeNotifier {
       HapticFeedback.heavyImpact();
       vibrate(obstacle != null ? 300 : 180).catchError((_) {});
       speak(spoken).catchError((_) {});
-      logEvent(spoken).catchError((_) {});
+      // Persist only state changes or periodic summaries, not every camera frame.
+      if (cueKey != _lastLoggedCueKey ||
+          now.difference(_lastLoggedAt) >= const Duration(seconds: 30)) {
+        _lastLoggedCueKey = cueKey;
+        _lastLoggedAt = now;
+        logEvent(spoken).catchError((_) {});
+      }
     }
   }
 }
