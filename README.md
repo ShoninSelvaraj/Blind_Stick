@@ -24,9 +24,9 @@ The app does not require Google Maps SDK, Google Maps API keys, paid map APIs, o
 
 - Register by choosing the task: **Use my smart stick** or **Support someone I care about**. This is an app role, not identity or disability verification.
 - After sign-in, the patient interface is separated into four named task areas: **Home**, **Navigate**, **Connections**, and **Help & SOS**. The app bar keeps accessibility settings and sign-out easy to find.
-- Primary actions have clear text labels and large touch targets. Tab changes are announced through speech, and standard Flutter controls expose labels to TalkBack.
+- Primary actions have clear text labels and large touch targets. The app speaks tab changes when Android accessible-navigation mode is not active; standard Flutter controls expose labels to TalkBack without a competing tab announcement.
 - Home includes a device-readiness section that explicitly shows missing sensor/model capabilities rather than pretending they work.
-- Settings offers spoken guidance, text scaling (100–160%) that respects Android text scaling, and high-contrast black/white colors.
+- Accessibility settings are reachable before sign-in and from signed-in screens. They offer spoken guidance, text scaling (100–160%) that respects Android text scaling, and high-contrast black/white colors.
 - Android TalkBack and system display settings remain available.
 - Navigation instructions are available both as readable text and spoken prompts. Tapping an instruction speaks it.
 - Sign out is visible on the patient and caregiver home bars and is also available in settings.
