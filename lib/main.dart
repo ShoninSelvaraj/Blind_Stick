@@ -522,7 +522,20 @@ class BleStickService extends ChangeNotifier {
    final results=await FlutterBluePlus.scanResults.firstWhere((r)=>r.any((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid)))).timeout(const Duration(seconds:12),onTimeout:()=> <ScanResult>[]);
    final match=results.where((x)=>x.advertisementData.serviceUuids.any((g)=>g==Guid(serviceUuid))).toList();
    if(match.isEmpty){status='Stick not found';lastError='No device advertising the BlindStick Companion service was found. Check that the stick is powered on and running the matching firmware.';return;}
-   device=match.first.device; await device!.connect(timeout:const Duration(seconds:15));
+   device=match.first.device;
+   await device!.connect(timeout:const Duration(seconds:15));
+   // Telemetry is newline-delimited JSON and can exceed the default 20-byte
+   // BLE payload. Negotiate a larger MTU so a JSON packet is not silently
+   // truncated before the newline reaches the stream.
+   try { await device!.requestMtu(256); } catch (_) {
+    // Some BLE stacks do not support MTU negotiation; packet validation below
+    // will report malformed/incomplete data instead of accepting it.
+   }
+   _packetBuffer='';
+   telemetry.distanceCm=null;
+   telemetry.distanceReceivedAt=null;
+   telemetry.receivedAt=null;
+   telemetry.rangeSensorStatus='unknown';
    connectionSub?.cancel();connectionSub=device!.connectionState.listen((s){connected=s==BluetoothConnectionState.connected;if(!connected){assistance=false;status='Connection lost — stick alerts may be unavailable';_event('Connection lost');}else{status='Stick connected';_event('Stick connected');}notifyListeners();});
    final services=await device!.discoverServices(); BluetoothService? svc;
    for(final s in services){if(s.serviceUuid==Guid(serviceUuid)){svc=s;break;}}
@@ -537,6 +550,13 @@ class BleStickService extends ChangeNotifier {
  }
  void _handlePacket(List<int> bytes){
   _packetBuffer += utf8.decode(bytes,allowMalformed:true);
+  // Prevent a broken or incompatible peripheral from growing the buffer forever.
+  if(_packetBuffer.length>4096&&!_packetBuffer.contains('\n')){
+   _packetBuffer='';
+   lastError='Stick telemetry packet exceeded the supported size. Check firmware and BLE MTU compatibility.';
+   notifyListeners();
+   return;
+  }
   while(_packetBuffer.contains('\n')){
    final index=_packetBuffer.indexOf('\n');
    final line=_packetBuffer.substring(0,index).trim();
@@ -544,8 +564,21 @@ class BleStickService extends ChangeNotifier {
    if(line.isEmpty)continue;
    try{
     final decoded=jsonDecode(line);
-    if(decoded is Map<String,dynamic>){telemetry.fromJson(decoded);_processSafety();}
-   }catch(_){lastError='Unreadable data received from stick. Check the firmware packet format.';}
+    if(decoded is! Map<String,dynamic>){
+     lastError='Stick sent a telemetry packet that is not a JSON object.';
+     continue;
+    }
+    if(decoded['protocol']!=1 ||
+       decoded['device']!='blindstick_companion-esp32cam'){
+     lastError='Incompatible stick firmware/protocol. Expected BlindStick Companion protocol v1.';
+     continue;
+    }
+    telemetry.fromJson(decoded);
+    lastError=null;
+    _processSafety();
+   }catch(_){
+    lastError='Unreadable or truncated data received from stick. Check firmware packet format and BLE MTU.';
+   }
   }
   notifyListeners();
  }
