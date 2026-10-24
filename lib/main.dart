@@ -1978,8 +1978,11 @@ class _SettingsPageState extends State<SettingsPage>{
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       _cameraReachable = true;
+      final assistanceActive = data['assistance'] == true;
       status = data['camera_ready'] == true
-          ? 'Camera connected. ${data['assistance'] == true ? 'Assistance is active.' : 'Start assistance to enable live frames.'}'
+          ? (assistanceActive
+              ? 'Camera connected. Assistance is active.'
+              : 'Camera connected. Start assistance to enable live frames.')
           : 'Camera Wi-Fi connected, but the camera is not ready.';
     } catch (_) {
       _cameraReachable = false;
@@ -2125,7 +2128,7 @@ class _SettingsPageState extends State<SettingsPage>{
         stick.announce(spoken);
         final currentUid = FirebaseAuth.instance.currentUser?.uid;
         if (currentUid != null) {
-          ApiService.instance.event(currentUid, 'vision', spoken).catchError((_) {});
+          ApiService.instance.event(currentUid, 'vision', spoken).then((_) {}).catchError((_) => false);
         }
       }
     }
