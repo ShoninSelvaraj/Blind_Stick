@@ -1,10 +1,10 @@
-# DishaFlow — accessible blind-stick companion
+# BlindStick Companion — accessible blind-stick companion
 
-Flutter Android app for the DishaFlow blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
+Flutter Android app for the BlindStick Companion blind-stick prototype. It uses Firebase Email/Password Authentication, Cloud Firestore, BLE, GPS-based Maps hand-off, spoken and haptic feedback, optional location sharing, and SOS alerts.
 
 ## Respectful onboarding
 
-Registration asks **what you want to do with DishaFlow**, not how to describe yourself:
+Registration asks **what you want to do with BlindStick Companion**, not how to describe yourself:
 
 - **Use my smart stick** — navigation, device status, safety alerts and SOS.
 - **Support someone I care about** — view updates only after the other person chooses to share access.
@@ -75,7 +75,7 @@ The app opens Google Maps walking navigation immediately with the destination, u
 
 ## Location sharing and SOS alerts
 
-Location sharing is opt-in. While DishaFlow remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
+Location sharing is opt-in. While BlindStick Companion remains open, it uploads a GPS point about every 30 seconds when location permission and Firestore access are available. It is not a guaranteed background tracking service.
 
 An SOS is first saved in `patients/{patientUid}/alerts`. If the Cloud Function has been deployed and the caregiver has a valid FCM token, the function attempts a push notification for the linked caregivers only. The alert records delivery-attempt status/counts. FCM cannot guarantee that a phone receives the message or that the person sees it; notification permissions, battery restrictions and connectivity matter. The patient is warned to use their usual emergency contact method as well.
 
@@ -102,4 +102,4 @@ Ultrasonic distance, battery telemetry and a physical vibration motor also need 
 
 GitHub Actions checks that Dart analysis is clean and the Android debug app builds. Those automated checks do not verify BLE pairing, GPS accuracy, physical sensors, camera AI, notification delivery, or accessibility with real users. The stick still needs BLE bonding/owner authorization; Firestore rules do not protect the Bluetooth radio itself.
 
-DishaFlow is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
+BlindStick Companion is a prototype companion, not a certified mobility aid. Do not use it as the only means of obstacle avoidance, road-crossing decisions, or emergency response before complete physical and supervised safety testing.
