@@ -11,6 +11,8 @@ void main() {
         'camera_ready': true,
         'camera_frame_available': false,
         'detection_status': 'runs_on_android_phone',
+        'camera_ap_ssid': 'BlindStick-Camera',
+        'camera_endpoint': 'http://192.168.4.1',
         'range_sensor_status': 'unavailable',
         'battery_status': 'unavailable',
       };
@@ -20,6 +22,39 @@ void main() {
       expect(isCompatibleStickTelemetry({...packet}..remove('range_sensor_status')), isFalse);
       expect(isCompatibleStickTelemetry({...packet, 'range_sensor_status': 'unknown'}), isFalse);
       expect(isCompatibleStickTelemetry({...packet, 'assistance': 'yes'}), isFalse);
+      expect(
+        isCompatibleStickTelemetry({
+          ...packet,
+          'range_sensor_status': 'fresh',
+        }),
+        isFalse,
+        reason: 'A fresh status without a numeric distance must not unlock assistance.',
+      );
+      expect(
+        isCompatibleStickTelemetry({
+          ...packet,
+          'range_sensor_status': 'fresh',
+          'distance_cm': 401,
+        }),
+        isFalse,
+      );
+      expect(
+        isCompatibleStickTelemetry({
+          ...packet,
+          'range_sensor_status': 'unavailable',
+          'distance_cm': 42,
+        }),
+        isFalse,
+        reason: 'Unavailable range telemetry must not carry a stale distance.',
+      );
+      expect(
+        isCompatibleStickTelemetry({
+          ...packet,
+          'range_sensor_status': 'fresh',
+          'distance_cm': 42,
+        }),
+        isTrue,
+      );
     });
 
     test('does not invent a battery percentage when firmware says unavailable', () {
