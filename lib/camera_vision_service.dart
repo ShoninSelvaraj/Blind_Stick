@@ -90,7 +90,7 @@ class CameraVisionService extends ChangeNotifier {
       preparing = false;
       notifyListeners();
       if (_modelReady && _running) {
-        _timer ??= Timer.periodic(const Duration(seconds: 2), (_) => _processFrame());
+        _timer ??= Timer.periodic(const Duration(milliseconds: 900), (_) => _processFrame());
         await _processFrame();
       }
     }
@@ -164,7 +164,7 @@ class CameraVisionService extends ChangeNotifier {
     _running = true;
     _failedFrames = 0;
     status = 'Starting camera detection…';
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _processFrame());
+    _timer = Timer.periodic(const Duration(milliseconds: 900), (_) => _processFrame());
     notifyListeners();
     await _processFrame();
   }
@@ -308,15 +308,20 @@ class CameraVisionService extends ChangeNotifier {
 
     final now = DateTime.now();
     final isNewCue = cueKey != _lastCueKey;
-    if (isNewCue || now.difference(_lastCueAt) > const Duration(seconds: 12)) {
-      if (now.difference(_lastCueAt) > const Duration(seconds: 4)) {
-        _lastCueKey = cueKey;
-        _lastCueAt = now;
-        HapticFeedback.heavyImpact();
-        vibrate(obstacle != null ? 300 : 180).catchError((_) {});
-        speak(spoken).catchError((_) {});
-        logEvent(spoken).catchError((_) {});
-      }
+    final elapsed = now.difference(_lastCueAt);
+    // Do not let a lower-priority crowd/traffic cue suppress a new obstacle alert.
+    // Repeat the same obstacle cue no more than once every 1.8 seconds.
+    final shouldAnnounce = obstacle != null
+        ? (isNewCue || elapsed >= const Duration(milliseconds: 1800))
+        : ((isNewCue || elapsed >= const Duration(seconds: 12)) &&
+            elapsed >= const Duration(seconds: 4));
+    if (shouldAnnounce) {
+      _lastCueKey = cueKey;
+      _lastCueAt = now;
+      HapticFeedback.heavyImpact();
+      vibrate(obstacle != null ? 300 : 180).catchError((_) {});
+      speak(spoken).catchError((_) {});
+      logEvent(spoken).catchError((_) {});
     }
   }
 }
