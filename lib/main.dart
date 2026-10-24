@@ -545,7 +545,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     });
     try {
       // User-triggered only (never type-ahead); cache repeat searches in this app session.
-      final cacheKey = query.toLowerCase();
+      final cacheKey = '${_geocoderBaseUrl.toLowerCase()}|${query.toLowerCase()}';
       Map<String, dynamic>? result = _geocodeCache[cacheKey];
       if (result == null) {
         final previous = _lastGeocodeRequest;
