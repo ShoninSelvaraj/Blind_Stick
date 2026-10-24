@@ -67,6 +67,10 @@ The root `firebase.json` intentionally excludes Cloud Functions so the recommend
 
 A patient can link at most two caregivers. A caregiver account can connect to one patient at a time in this version. A caregiver role alone does not grant access.
 
+## Live caregiver location sharing
+
+In the patient app, open **Connections → Share my location**. The user chooses either app-open-only updates or background sharing. Background mode requests Android background location and uses a foreground location service with a persistent notification while enabled. Turning sharing off cancels the location stream. Force-stopping the app, rebooting, revoking permission, losing GPS/network, Android battery policy or Firestore errors can stop uploads; caregivers must treat timestamps as important and not assume a last known location is live.
+
 ## In-app map and navigation
 
 The map and route preview are rendered inside BlindStick Companion using the open-source Flutter map client and OpenStreetMap-derived services. Patient navigation and the caregiver's shared-location action open this in-app view rather than switching to Google Maps.
@@ -96,7 +100,7 @@ BLE service UUID: `7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001`
 
 Firmware path: `firmware/esp32_cam/esp32_cam_ble_bridge.ino`.
 
-The firmware advertises BLE, creates a password-protected `BlindStick-Camera` Wi-Fi AP, serves `/status` and JPEG frames from `/capture`, reads an optional HC-SR04-style ultrasonic sensor, reports `range_sensor_status` as `fresh` or `unavailable`, and provides a driver output for a vibration motor. The phone warns if BLE telemetry or fresh range data stops, rather than treating missing measurements as a clear path. Local motor feedback uses a longer/faster pulse pattern for urgent close obstacles and a shorter/slower pulse pattern for caution-range obstacles. The Android app downloads and runs two on-device models: quantized SSD MobileNet V1 COCO for common objects/person count and an MIT-licensed YOLO26n seven-class model that distinguishes `human_red`/`human_green` pedestrian indications from `vehicle_red`/`vehicle_green` signals. The app uses temporal confirmation and a red-baseline rule before describing a green pedestrian-signal estimate; it still never instructs a user to cross. All outputs remain **experimental predictions**, not certified safety outputs. Battery monitoring is absent, and the physical board, sensor, motor driver and app have not been validated together.
+The firmware advertises BLE, creates a password-protected `BlindStick-Camera` Wi-Fi AP, serves `/status` and JPEG frames from `/capture`, reads an optional HC-SR04-style ultrasonic sensor, reports `range_sensor_status` as `fresh` or `unavailable`, and provides a driver output for a vibration motor. The phone warns if BLE telemetry or fresh range data stops, rather than treating missing measurements as a clear path. Camera obstacle cues use the newest fresh ultrasonic reading as supporting context, but do not claim that the distance value belongs to the particular detected object. When a camera object is estimated on the left/right/center of the image, the single motor can use one/two/three short pulse counts for approximate direction and longer pulses for urgency; this code needs training and physical testing. The Android app downloads and runs two on-device models: quantized SSD MobileNet V1 COCO for common objects/person count and an MIT-licensed YOLO26n seven-class model that distinguishes `human_red`/`human_green` pedestrian indications from `vehicle_red`/`vehicle_green` signals. The app uses temporal confirmation and a red-baseline rule before describing a green pedestrian-signal estimate; it still never instructs a user to cross. All outputs remain **experimental predictions**, not certified safety outputs. Battery monitoring is absent, and the physical board, sensor, motor driver and app have not been validated together.
 
 ### Camera/AI setup
 
