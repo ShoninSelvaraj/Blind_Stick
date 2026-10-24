@@ -25,13 +25,12 @@ Future<void> main() async {
  voiceGuidanceEnabled = preferences.getBool('voice') ?? true;
  appTextScale.value = preferences.getDouble('text_scale') ?? 1.0;
  appHighContrast.value = preferences.getBool('high_contrast') ?? false;
- await vision.initialize();
  runApp(const BlindStickApp());
 }
 
-Color get navy => appHighContrast.value ? Colors.black : const Color(0xFF17233B);
-Color get teal => appHighContrast.value ? Colors.black : const Color(0xFF007F78);
-Color get pale => appHighContrast.value ? Colors.white : const Color(0xFFEAF7F4);
+const navy = Color(0xFF17233B);
+const teal = Color(0xFF007F78);
+const pale = Color(0xFFEAF7F4);
 const red = Color(0xFFB42318);
 const serviceUuid = '7b6e0001-7d9a-4b5c-8f4d-6e9a0b000001';
 const telemetryUuid = '7b6e0002-7d9a-4b5c-8f4d-6e9a0b000001';
@@ -95,17 +94,15 @@ class AuthGate extends StatelessWidget {
 class ProfilePendingPage extends StatelessWidget {
  final String email;const ProfilePendingPage({super.key,required this.email});
  @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
- Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
+ const Icon(Icons.verified_user_outlined,size:64,color:teal),const SizedBox(height:18),const Text('Account created',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:12),
  Text('Signed in as $email. Your account profile is not ready. Sign out and try again, or contact support if this continues.',textAlign:TextAlign.center,style:const TextStyle(fontSize:16)),const SizedBox(height:22),FilledButton.icon(onPressed:signOutSafely,icon:const Icon(Icons.logout),label:const Text('Sign out'))
  ])))));
 }
 
 class LoginPage extends StatefulWidget { const LoginPage({super.key}); @override State<LoginPage> createState()=>_LoginPageState(); }
 class _LoginPageState extends State<LoginPage> {
- @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
- void _contrastChanged(){if(mounted)setState((){});}
  final email=TextEditingController(),password=TextEditingController(),name=TextEditingController();bool hide=true,createAccount=false,busy=false;Role selectedRole=Role.patient;String? error,info;
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);email.dispose();password.dispose();name.dispose();super.dispose();}
+ @override void dispose(){email.dispose();password.dispose();name.dispose();super.dispose();}
  Future<void> submit() async {
   if(busy)return;
   if(email.text.trim().isEmpty||!email.text.contains('@')||password.text.length<6||(createAccount&&name.text.trim().isEmpty)){setState(()=>error=createAccount?'Enter your name, a valid email and a password of at least 6 characters.':'Enter your email and password (at least 6 characters).');return;}
@@ -152,7 +149,7 @@ class _LoginPageState extends State<LoginPage> {
        Icon(icon,size:32,color:selected?teal:navy),
        const SizedBox(width:14),
        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text(title,style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
+        Text(title,style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
         const SizedBox(height:4),
         Text(detail,style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
        ])),
@@ -165,19 +162,11 @@ class _LoginPageState extends State<LoginPage> {
   );
  }
  @override Widget build(BuildContext c)=>Scaffold(body:SafeArea(child:ListView(padding:const EdgeInsets.all(24),children:[
- Align(
-  alignment:Alignment.centerRight,
-  child:TextButton.icon(
-   onPressed:()=>Navigator.push(c,MaterialPageRoute(builder:(_)=>const SettingsPage())),
-   icon:const Icon(Icons.accessibility_new),
-   label:const Text('Accessibility settings'),
-  ),
- ),
  const SizedBox(height:16),Container(width:68,height:68,alignment:Alignment.center,decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(22)),child:const Icon(Icons.accessibility_new_rounded,color:Colors.white,size:42)),
- const SizedBox(height:20),Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
- Text(createAccount?'Create your account':'Welcome back',style:TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
+ const SizedBox(height:20),const Text('BlindStick Companion',style:TextStyle(fontSize:30,fontWeight:FontWeight.w900,color:navy)),const Text('Your companion for safer journeys',style:TextStyle(fontSize:17,color:Color(0xFF59697B))),const SizedBox(height:32),
+ Text(createAccount?'Create your account':'Welcome back',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w800,color:navy)),const SizedBox(height:16),
  if(createAccount)...[
-  Text('Choose how you’d like to use this app',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
+  const Text('Choose how you’d like to use this app',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800,color:navy)),
   const SizedBox(height:12),
   _roleChoice(Role.patient,'Use my smart stick','Navigate, hear safety alerts and ask for help.',Icons.accessibility_new_rounded),
   const SizedBox(height:10),
@@ -187,7 +176,7 @@ class _LoginPageState extends State<LoginPage> {
  if(createAccount)...[TextField(controller:name,textCapitalization:TextCapitalization.words,autofillHints:const [AutofillHints.name],decoration:const InputDecoration(labelText:'Your name',prefixIcon:Icon(Icons.person_outline))),const SizedBox(height:12)],
  TextField(controller:email,keyboardType:TextInputType.emailAddress,autofillHints:const [AutofillHints.email],textInputAction:TextInputAction.next,decoration:const InputDecoration(labelText:'Email address',prefixIcon:Icon(Icons.email_outlined))),const SizedBox(height:12),
  TextField(controller:password,obscureText:hide,autofillHints:createAccount?const [AutofillHints.newPassword]:const [AutofillHints.password],onSubmitted:(_)=>submit(),decoration:InputDecoration(labelText:'Password',helperText:createAccount?'Use at least 6 characters':'',prefixIcon:const Icon(Icons.lock_outline),suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
- if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:TextStyle(color:teal))),
+ if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:const TextStyle(color:red))),if(info!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(info!,style:const TextStyle(color:teal))),
  const SizedBox(height:20),SizedBox(height:58,child:FilledButton.icon(onPressed:busy?null:submit,icon:busy?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):Icon(createAccount?Icons.person_add_alt_1:Icons.arrow_forward),label:Text(busy?'Please wait…':createAccount?'Create account':'Sign in',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))),
  if(!createAccount)Align(alignment:Alignment.centerRight,child:TextButton(onPressed:busy?null:resetPassword,child:const Text('Forgot password?'))),
  TextButton(onPressed:busy?null:()=>setState(() { createAccount=!createAccount; error=null; info=null; }),child:Text(createAccount?'Already have an account? Sign in':'New here? Create an account')),
@@ -381,7 +370,6 @@ class BleStickService extends ChangeNotifier {
  }
  Future<void> _command(Map<String,dynamic> cmd)async{if(!connected||commandChar==null)return;final bytes=utf8.encode('${jsonEncode(cmd)}\n');await commandChar!.write(bytes,withoutResponse:commandChar!.properties.writeWithoutResponse&&!commandChar!.properties.write);}
  Future<void> setAssistance(bool on)async{assistance=on;await _command({'cmd':on?'start':'stop'});_event(on?'Assistance started':'Assistance paused');if(on)_speak('Assistance started. Stay aware of your surroundings.');notifyListeners();}
- Future<void> pulseVibration({int durationMs=180})async{if(!connected||!assistance||commandChar==null)return;try{await _command({'cmd':'vibrate','duration_ms':durationMs});}catch(_){}}
  Future<void> _speak(String s)async{if(!voiceGuidanceEnabled)return;await tts.stop();await tts.speak(s);}
  Future<void> announce(String s)=>_speak(s);
  void _event(String s){final now=DateTime.now();final stamp='${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';events.insert(0,'$stamp · $s');if(events.length>50)events.removeLast();final user=FirebaseAuth.instance.currentUser;if(user!=null){ApiService.instance.event(user.uid,'system',s);}}
@@ -390,45 +378,9 @@ class BleStickService extends ChangeNotifier {
 }
 final stick=BleStickService();
 
-class CameraVisionService extends ChangeNotifier {
-  static const MethodChannel _channel = MethodChannel('blindstick_companion/vision');
-  static const String defaultEndpoint = 'http://192.168.4.1';
+Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
 
-  Timer? _timer;
-  bool _processing = false;
-  bool _running = false;
-  bool _modelReady = false;
-  bool preparing = false;
-  bool _cameraReachable = false;
-  int _failedFrames = 0;
-  DateTime _lastCueAt = DateTime.fromMillisecondsSinceEpoch(0);
-  String _lastCueKey = '';
-  String endpoint = defaultEndpoint;
-  String status = 'On-device AI model not prepared';
-  String crowdLevel = 'unknown';
-  String trafficState = 'not_detected';
-  int personCount = 0;
-  List<Map<String, dynamic>> detections = <Map<String, dynamic>>[];
-  bool get modelReady => _modelReady;
-  bool get cameraReachable => _cameraReachable;
-  bool get running => _running;
-
-  Future<void> initialize() async {
-    final preferences = await SharedPreferences.getInstance();
-    endpoint = _normalizeEndpoint(preferences.getString('camera_base_url') ?? defaultEndpoint);
-    try {
-      _modelReady = await _channel.invokeMethod<bool>('visionModelReady') ?? false;
-      if (_modelReady) status = 'On-device AI model ready';
-    } catch (_) {
-      status = 'On-device AI runtime is unavailable in this build';
-    }
-    notifyListeners();
-  }
-
-  String _normalizeEndpoint(String value) {
-    return value.trim().replaceAll(RegExp(r'/+try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
-
-Future<void> openNavigation(BuildContext context, String destination, {Future<void> Function()? onEmergency}) async {
+Future<void> openNavigation(BuildContext context, String destination) async {
   final place = destination.trim();
   if (place.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -438,7 +390,7 @@ Future<void> openNavigation(BuildContext context, String destination, {Future<vo
   }
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => InAppNavigationPage(initialQuery: place, onEmergency: onEmergency),
+      builder: (_) => InAppNavigationPage(initialQuery: place),
     ),
   );
 }
@@ -460,13 +412,11 @@ class InAppNavigationPage extends StatefulWidget {
   final String? initialQuery;
   final LatLng? initialDestination;
   final String initialDestinationLabel;
-  final Future<void> Function()? onEmergency;
   const InAppNavigationPage({
     super.key,
     this.initialQuery,
     this.initialDestination,
     this.initialDestinationLabel = 'Shared location',
-    this.onEmergency,
   });
 
   @override
@@ -502,12 +452,9 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
   @override
   void initState() {
     super.initState();
-    appHighContrast.addListener(_contrastChanged);
     _query.text = widget.initialQuery ?? '';
     _initialize();
   }
-
-  void _contrastChanged(){if(mounted)setState((){});}
 
   Future<void> _initialize() async {
     final preferences = await SharedPreferences.getInstance();
@@ -578,18 +525,9 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       locationSettings: settings,
     ).listen(_onPosition, onError: (_) {
       if (!mounted) return;
-      final guidanceWasActive = _guidance;
-      setState(() {
-        _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.';
-        if (guidanceWasActive) {
-          _guidance = false;
-          _status = 'GPS update lost — guidance paused';
-        }
-      });
-      if (guidanceWasActive) {
-        _positionSubscription?.cancel();
-        HapticFeedback.heavyImpact();
-        stick.announce('Warning. Live GPS updates stopped, so spoken turn guidance is paused. Stop in a safe place and check your location and permissions.');
+      setState(() => _error = 'Live GPS updates stopped. Do not keep walking based on the last instruction. Stop safely and check location permission/GPS.');
+      if (_guidance) {
+        stick.announce('Warning. Live GPS updates stopped. Stop in a safe place and check your location and permissions.');
       }
     });
   }
@@ -647,7 +585,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           _status = 'GPS accuracy is poor';
           _error = 'Live GPS accuracy is too poor to verify turns or route position. Stop somewhere safe and wait for a better location fix.';
         });
-        HapticFeedback.heavyImpact();
         stick.announce('Warning. GPS accuracy is poor. I cannot reliably verify your next turn or whether you are on the route. Stop in a safe place and wait for a better location fix.');
       }
       return;
@@ -872,17 +809,10 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'Getting current location for a new route';
+      _status = 'Loading walking route';
       _guidance = false;
     });
     try {
-      // Stop background navigation mode and request a fresh origin; never reuse a stale GPS fix for rerouting.
-      await _startPositionStream(guidanceMode: false);
-      final current = await getPosition();
-      if (current == null) {
-        throw StateError('Current location is unavailable. Turn on location and try again from a safe place.');
-      }
-      if (mounted) setState(() => _position = current);
       await _loadRoute();
     } catch (exception) {
       if (mounted) {
@@ -890,7 +820,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           _error = exception.toString().replaceFirst('Bad state: ', '');
           _status = 'Route unavailable';
         });
-        await stick.announce('The route could not be recalculated. Stop safely and check your current location.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1094,7 +1023,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
   @override
   void dispose() {
-    appHighContrast.removeListener(_contrastChanged);
     _positionSubscription?.cancel();
     _query.dispose();
     super.dispose();
@@ -1135,12 +1063,6 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
       appBar: AppBar(
         title: const Text('Walking navigation'),
         actions: [
-          if (widget.onEmergency != null)
-            IconButton(
-              tooltip: 'Emergency help and SOS',
-              onPressed: widget.onEmergency,
-              icon: const Icon(Icons.sos, color: red, size: 28),
-            ),
           IconButton(
             tooltip: 'Accessibility settings',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
@@ -1175,7 +1097,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
               children: [
-                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
+                Semantics(liveRegion: true, label: 'Navigation status: $_status', child: Text(_status, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: navy))),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _query,
@@ -1198,7 +1120,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                 ),
                 if (_destinationLabel != null) ...[
                   const SizedBox(height: 12),
-                  Text('Destination: $_destinationLabel', style: TextStyle(fontWeight: FontWeight.w700, color: navy)),
+                  Text('Destination: $_destinationLabel', style: const TextStyle(fontWeight: FontWeight.w700, color: navy)),
                   if (_distanceMeters != null && _durationSeconds != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -1236,7 +1158,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
                     label: Text(_offRoute ? 'Recalculate route before continuing' : 'Recalculate route from current location'),
                   ),
                 const SizedBox(height: 10),
-                Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
+                const Text('Route instructions', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: navy)),
                 if (_steps.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
@@ -1293,10 +1215,8 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
 
 
 class PatientPage extends StatefulWidget{final AppUser user;const PatientPage({super.key,required this.user});@override State<PatientPage> createState()=>_PatientPageState();}
-class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;int _selectedTab=0;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;bool _lastVisionShouldRun=false;
- @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);vision.addListener(_visionChanged);_load();_ensurePatientRecord();stick.addListener(_changed);}
- void _visionChanged(){if(!mounted)return;setState((){});if(stick.connected&&stick.assistance&&vision.modelReady){vision.start();}}
- void _contrastChanged(){if(mounted)setState((){});}
+class _PatientPageState extends State<PatientPage>{final destination=TextEditingController();final api=ApiService.instance;Position? position;bool sharing=false,voice=true;int _selectedTab=0;Timer? locationTimer,pairExpiryTimer;String locationText='Location not checked yet';String? pairingCode;DateTime? pairingExpiresAt;bool generatingCode=false;bool? lastStoredConnection;
+ @override void initState(){super.initState();_load();_ensurePatientRecord();stick.addListener(_changed);}
  Future<void> _ensurePatientRecord() async { try { final ref=FirebaseFirestore.instance.collection('patients').doc(widget.user.uid); final snap=await ref.get(); if(!snap.exists){ await ref.set({'ownerUid':widget.user.uid,'displayName':widget.user.name,'caregiverUids':<String>[],'deviceStatus':'not_connected','createdAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()}); } } catch (_) { /* Role assignment or Firestore rules may not be ready yet. */ } }
  Future<void> _generatePairingCode() async {
   if(generatingCode)return;
@@ -1320,12 +1240,12 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    padding:const EdgeInsets.all(18),
    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:const Color(0xFFDCE5E9))),
    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),const SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
+    const Row(children:[Icon(Icons.people_alt_outlined,color:teal,size:28),SizedBox(width:10),Expanded(child:Text('Connect someone you trust',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800,color:navy)))]),
     const SizedBox(height:8),
     const Text('Create a private one-time code for a caregiver. It expires in 10 minutes and can be used once. Up to two caregivers can be linked.',style:TextStyle(fontSize:14,color:Color(0xFF59697B))),
     const SizedBox(height:14),
     if(pairingCode!=null&&!expired)...[
-     Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
+     Semantics(liveRegion:true,label:'Caregiver pairing code: ${pairingCode!.split('').join(' ')}. Expires in ten minutes.',child:Container(width:double.infinity,padding:const EdgeInsets.symmetric(vertical:18,horizontal:12),decoration:BoxDecoration(color:pale,borderRadius:BorderRadius.circular(16)),child:Text(pairingCode!,textAlign:TextAlign.center,style:const TextStyle(fontSize:32,fontWeight:FontWeight.w900,letterSpacing:5,color:navy)))),
      const SizedBox(height:8),
      Row(children:[
       Expanded(child:OutlinedButton.icon(onPressed:()=>Clipboard.setData(ClipboardData(text:pairingCode!)),icon:const Icon(Icons.copy),label:const Text('Copy code'))),
@@ -1338,7 +1258,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   );
  }
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
- void _changed(){if(!mounted)return;setState((){});final shouldRunVision=stick.connected&&stick.assistance;if(shouldRunVision!=_lastVisionShouldRun){_lastVisionShouldRun=shouldRunVision;if(shouldRunVision){vision.start();}else{vision.stop();}}if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
+ void _changed(){if(!mounted)return;setState((){});if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
  Future<void> _refreshLocation()async{final p=await getPosition();if(!mounted)return;setState(() { position=p; locationText=p==null?'Location unavailable':'Location ready · accuracy ${p.accuracy.round()} m'; });if(sharing&&p!=null)await api.location(widget.user.uid,p);}
  Future<void> _toggleSharing(bool v)async{setState(()=>sharing=v);locationTimer?.cancel();if(v){await _refreshLocation();locationTimer=Timer.periodic(const Duration(seconds:30),(_)=>_refreshLocation());}else{setState(()=>locationText='Location sharing paused');}}
  Future<void> _sos()async{
@@ -1370,7 +1290,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    }
   }
  }
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);vision.removeListener(_visionChanged);vision.stop();destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
+ @override void dispose(){destination.dispose();locationTimer?.cancel();pairExpiryTimer?.cancel();stick.removeListener(_changed);super.dispose();}
  @override
  Widget build(BuildContext c) {
   final t=stick.telemetry;
@@ -1415,9 +1335,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
  Future<void> _selectTab(int index) async {
   if(index<0||index>3)return;
   setState(()=>_selectedTab=index);
-  if (!MediaQuery.of(context).accessibleNavigation) {
-   await stick.announce('${_tabTitle(index)} screen.');
-  }
+  await stick.announce('${_tabTitle(index)} screen.');
  }
 
  Widget _homeTab(StickTelemetry t)=>ListView(
@@ -1488,77 +1406,58 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    const SizedBox(height:10),
    _readinessItem(
     'Ultrasonic obstacle range',
-    t.distanceCm==null?'No live distance reading. Check the ultrasonic sensor and wiring.':'${t.distanceCm!.round()} centimetres',
+    t.distanceCm==null?'No distance reading received': '${t.distanceCm!.round()} centimetres',
     t.distanceCm==null?Icons.sensors_off:Icons.radar,
     t.distanceCm==null?Colors.orange:teal,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'On-device vision model',
-    vision.modelReady?'SSD MobileNet COCO is downloaded and runs on this phone.':'Not downloaded yet. Prepare it while internet is available.',
+    'Object detection',
+    t.detectionStatus=='model_not_installed'
+        ? 'Not available yet — no trained detection model is installed.'
+        : 'Awaiting verified detections from the connected device.',
     Icons.center_focus_strong,
-    vision.modelReady?teal:Colors.orange,
+    Colors.orange,
    ),
    const SizedBox(height:8),
    _readinessItem(
-    'Camera Wi-Fi connection',
-    vision.cameraReachable?'ESP32-CAM is reachable at ${vision.endpoint}.':'Not connected. Join the stick camera Wi-Fi, then tap Check camera.',
+    'Traffic signal guidance',
+    'Not implemented in the current camera firmware. Do not rely on this app to decide when to cross.',
+    Icons.traffic,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Crowd density warning',
+    'Not implemented in the current camera firmware.',
+    Icons.groups_outlined,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Stick vibration motor',
+    'Physical motor is not controlled by current firmware. The app only provides phone haptics for supported warnings and turn prompts.',
+    Icons.vibration,
+    Colors.orange,
+   ),
+   const SizedBox(height:8),
+   _readinessItem(
+    'Camera and AI',
+    !stick.connected?'Connect the stick to check camera status':t.detectionStatus=='model_not_installed'?'Camera bridge detected; object-detection AI is not installed':t.cameraReady==true?'Camera reports ready; AI results still need verification':'Camera status not confirmed',
     Icons.camera_alt_outlined,
-    vision.cameraReachable?teal:Colors.orange,
+    t.detectionStatus=='model_not_installed'||!stick.connected?Colors.orange:teal,
    ),
-   const SizedBox(height:8),
-   Semantics(liveRegion:true,child:Container(
-    padding:const EdgeInsets.all(16),
-    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFDCE5E9))),
-    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     Text('Camera AI status',style:TextStyle(fontSize:17,fontWeight:FontWeight.w900,color:navy)),
-     const SizedBox(height:6),
-     Text(vision.status,style:const TextStyle(fontSize:15,color:Color(0xFF59697B))),
-     if(vision.modelReady&&vision.detections.isNotEmpty)Padding(
-      padding:const EdgeInsets.only(top:6),
-      child:Text('Detected: ${vision.detections.take(5).map((d)=>d['label']).join(', ')}. People: ${vision.personCount}. Crowd estimate: ${vision.crowdLevel}.',style:TextStyle(fontSize:15,fontWeight:FontWeight.w700,color:navy)),
-     ),
-     if(vision.trafficState!='not_detected')Padding(
-      padding:const EdgeInsets.only(top:4),
-      child:Text('Traffic lamp estimate: ${vision.trafficState}. This does not identify a pedestrian walk signal.',style:const TextStyle(fontSize:14,color:Color(0xFF59697B))),
-     ),
-    ]),
-   )),
-   const SizedBox(height:10),
-   SizedBox(
-    height:62,
-    child:FilledButton.icon(
-     onPressed:vision.modelReady?null:vision.prepareModel,
-     icon:Icon(vision.modelReady?Icons.check_circle_outline:Icons.download_for_offline_outlined,size:26),
-     label:Text(vision.modelReady?'On-device AI model prepared':'Prepare on-device AI model',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
-    ),
+   if(stick.lastError!=null)Padding(
+    padding:const EdgeInsets.only(top:12),
+    child:Semantics(liveRegion:true,child:Container(
+     padding:const EdgeInsets.all(14),
+     decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(14)),
+     child:Text(stick.lastError!,style:const TextStyle(color:red,fontSize:16,fontWeight:FontWeight.w700)),
+    )),
    ),
-   const SizedBox(height:8),
-   SizedBox(
-    height:58,
-    child:OutlinedButton.icon(
-     onPressed:vision.checkCamera,
-     icon:const Icon(Icons.wifi_tethering_outlined,size:24),
-     label:const Text('Check camera connection',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
-    ),
-   ),
-   const SizedBox(height:8),
-   SizedBox(
-    height:56,
-    child:OutlinedButton.icon(
-     onPressed:vision.openWifiSettings,
-     icon:const Icon(Icons.wifi),
-     label:const Text('Open Wi-Fi settings',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700)),
-    ),
-   ),
-   const SizedBox(height:10),
+   const SizedBox(height:14),
    const Text(
-    'Setup: first prepare the AI model while connected to the internet. Then join Wi-Fi “BlindStick-Camera” (default password: StickAssist#26). Return here, connect the stick over Bluetooth, and start assistance. Keep the camera AP password private and change the firmware default before sharing the prototype publicly.',
-    style:TextStyle(color:Color(0xFF59697B),fontSize:14),
-   ),
-   const SizedBox(height:10),
-   const Text(
-    'Model limitation: the COCO detector recognises common objects and traffic-light-shaped objects; crowd level is estimated from people counted in one frame. A colour estimate cannot tell whether a pedestrian signal says WALK, and it must never be treated as permission to cross.',
+    'Safety: the current hardware bridge does not yet provide verified ultrasonic distance or trained object/traffic/crowd detections. Keep using your usual mobility technique and stop if device data is missing.',
     style:TextStyle(color:Color(0xFF59697B),fontSize:14),
    ),
   ],
@@ -1582,7 +1481,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    TextField(
     controller:destination,
     textInputAction:TextInputAction.go,
-    onSubmitted:(v)=>openNavigation(context,v,onEmergency:_sos),
+    onSubmitted:(v)=>openNavigation(context,v),
     decoration:const InputDecoration(
      labelText:'Destination',
      hintText:'Place, street, or address',
@@ -1593,7 +1492,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    SizedBox(
     height:66,
     child:FilledButton.icon(
-     onPressed:()=>openNavigation(context,destination.text,onEmergency:_sos),
+     onPressed:()=>openNavigation(context,destination.text),
      icon:const Icon(Icons.map_outlined,size:28),
      label:const Text('Open in-app walking navigation',style:TextStyle(fontSize:17,fontWeight:FontWeight.w800)),
     ),
@@ -1664,11 +1563,11 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    Container(
     padding:const EdgeInsets.all(20),
     decoration:BoxDecoration(color:const Color(0xFFFFF1F0),borderRadius:BorderRadius.circular(22),border:Border.all(color:red,width:2)),
-    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     const Icon(Icons.health_and_safety_outlined,color:red,size:36),
-     const SizedBox(height:12),
+    child:const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Icon(Icons.health_and_safety_outlined,color:red,size:36),
+     SizedBox(height:12),
      Text('Need help?',style:TextStyle(color:navy,fontSize:25,fontWeight:FontWeight.w900)),
-     const SizedBox(height:8),
+     SizedBox(height:8),
      Text('Save an SOS alert and, if needed, open an SMS message to contact someone you trust.',style:TextStyle(color:navy,fontSize:16)),
     ]),
    ),
@@ -1694,7 +1593,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
      label:'Device event: $event',
      child:ListTile(
       contentPadding:EdgeInsets.zero,
-      leading:Icon(Icons.circle,size:12,color:teal),
+      leading:const Icon(Icons.circle,size:12,color:teal),
       title:Text(event,style:const TextStyle(fontSize:15)),
      ),
     )),
@@ -1708,14 +1607,14 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    Icon(icon,color:color,size:28),
    const SizedBox(width:12),
    Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    Text(title,style:TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
+    Text(title,style:const TextStyle(fontSize:16,fontWeight:FontWeight.w800,color:navy)),
     const SizedBox(height:5),
     Text(value,style:const TextStyle(fontSize:15,color:Color(0xFF59697B))),
    ])),
   ]),
  );
 
- Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
+ Widget _section(String s,IconData i)=>Row(children:[Icon(i,color:teal),const SizedBox(width:8),Text(s,style:const TextStyle(color:navy,fontSize:19,fontWeight:FontWeight.w900))]);
 }
 
 class CaregiverPage extends StatefulWidget{
@@ -1724,9 +1623,7 @@ class CaregiverPage extends StatefulWidget{
 }
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
- @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
- void _contrastChanged(){if(mounted)setState((){});}
- @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
+ @override void dispose(){codeController.dispose();super.dispose();}
  Future<void> _pair()async{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
@@ -1753,10 +1650,10 @@ class _CaregiverPageState extends State<CaregiverPage>{
       Text('Stay connected, with permission.',style:TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
       SizedBox(height:8),Text('Enter the one-time code shared by the person using BlindStick Companion. They control who can connect.',style:TextStyle(color:Colors.white70,fontSize:15))
      ])),
-     const SizedBox(height:22),Text('Pair with someone',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+     const SizedBox(height:22),const Text('Pair with someone',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
      TextField(controller:codeController,keyboardType:TextInputType.number,maxLength:8,autofillHints:const [],textInputAction:TextInputAction.done,onSubmitted:(_)=>_pair(),decoration:const InputDecoration(labelText:'8-digit pairing code',hintText:'Enter the shared code',prefixIcon:Icon(Icons.key_outlined))),
      if(pairingError!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingError!,style:const TextStyle(color:red))),
-     if(pairingInfo!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingInfo!,style:TextStyle(color:teal))),
+     if(pairingInfo!=null)Padding(padding:const EdgeInsets.only(top:8),child:Text(pairingInfo!,style:const TextStyle(color:teal))),
      const SizedBox(height:8),SizedBox(height:56,child:FilledButton.icon(onPressed:pairing?null:_pair,icon:pairing?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.link),label:Text(pairing?'Connecting…':'Connect securely',style:const TextStyle(fontSize:17,fontWeight:FontWeight.w800)))),
      const SizedBox(height:16),const Text('Codes expire after 10 minutes and work once. An account can connect to one patient at a time in this version.',style:TextStyle(color:Color(0xFF64748B))),
     ]);}
@@ -1777,11 +1674,11 @@ class _CaregiverPageState extends State<CaregiverPage>{
         Text('Connected to $name',style:const TextStyle(color:Colors.white,fontSize:26,fontWeight:FontWeight.w900)),
         const SizedBox(height:8),const Text('You are linked with permission. Updates appear here when they are shared.',style:TextStyle(color:Colors.white70,fontSize:15))
        ])),
-       const SizedBox(height:20),Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+       const SizedBox(height:20),const Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:const TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),const Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
        if(location is Map&&location['recordedAt'] is Timestamp)Padding(padding:const EdgeInsets.only(top:4),child:Text('Updated ${(location['recordedAt'] as Timestamp).toDate().toLocal()}',style:const TextStyle(color:Color(0xFF64748B)))),
-       const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('View location in in-app map'))),
-       const SizedBox(height:22),Text('Recent alerts',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
+       const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('Open location in Maps'))),
+       const SizedBox(height:22),const Text('Recent alerts',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
         stream:FirebaseFirestore.instance.collection('patients').doc(patientUid).collection('alerts').orderBy('createdAt',descending:true).limit(8).snapshots(),
         builder:(context,alerts){
@@ -1810,14 +1707,12 @@ class _SettingsPageState extends State<SettingsPage>{
  final tileUrlController=TextEditingController(text:defaultMapTileUrl);
  final geocoderUrlController=TextEditingController(text:defaultGeocoderBaseUrl);
  final footRouterUrlController=TextEditingController(text:defaultFootRouterBaseUrl);
- final cameraEndpointController=TextEditingController(text:CameraVisionService.defaultEndpoint);
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{
   final prefs=await SharedPreferences.getInstance();if(!mounted)return;
   tileUrlController.text=prefs.getString('map_tiles_url')??defaultMapTileUrl;
   geocoderUrlController.text=prefs.getString('map_geocoder_url')??defaultGeocoderBaseUrl;
   footRouterUrlController.text=prefs.getString('map_foot_router_url')??defaultFootRouterBaseUrl;
-  cameraEndpointController.text=prefs.getString('camera_base_url')??CameraVisionService.defaultEndpoint;
   setState(() { voice=prefs.getBool('voice')??true; textScale=prefs.getDouble('text_scale')??1.0; highContrast=prefs.getBool('high_contrast')??false; });
   voiceGuidanceEnabled=voice;appTextScale.value=textScale;appHighContrast.value=highContrast;
  }
@@ -1832,14 +1727,6 @@ class _SettingsPageState extends State<SettingsPage>{
  Future<void> _saveHighContrast(bool value)async{
   setState(()=>highContrast=value);appHighContrast.value=value;
   final prefs=await SharedPreferences.getInstance();await prefs.setBool('high_contrast',value);
- }
- Future<void> _saveCameraEndpoint() async {
-  try {
-   await vision.saveEndpoint(cameraEndpointController.text);
-   if(mounted)setState(()=>saved='Camera endpoint saved: ${vision.endpoint}');
-  } on FormatException catch(error) {
-   if(mounted)setState(()=>saved=error.message);
-  }
  }
  Future<void> _saveMapServices() async {
   final tiles=tileUrlController.text.trim();
@@ -1858,39 +1745,23 @@ class _SettingsPageState extends State<SettingsPage>{
   if(mounted)setState(()=>saved='Map service settings saved on this phone. Reopen navigation to use them.');
  }
  @override void dispose(){
-  tileUrlController.dispose();geocoderUrlController.dispose();footRouterUrlController.dispose();cameraEndpointController.dispose();super.dispose();
+  tileUrlController.dispose();geocoderUrlController.dispose();footRouterUrlController.dispose();super.dispose();
  }
  @override Widget build(BuildContext c)=>Scaffold(
   appBar:AppBar(title:const Text('Accessibility & settings')),
   body:ListView(padding:const EdgeInsets.all(20),children:[
-   Text('Set BlindStick Companion up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
+   const Text('Set BlindStick Companion up for you',style:TextStyle(fontSize:27,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('These controls work on this phone and are saved automatically.'),
    const SizedBox(height:24),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Spoken safety guidance',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Speak warnings and important status messages'),value:voice,onChanged:_saveVoice),
    const SizedBox(height:10),
    SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('High contrast',style:TextStyle(fontWeight:FontWeight.w800)),subtitle:const Text('Use a black-and-white colour scheme for low vision'),value:highContrast,onChanged:_saveHighContrast),
    const SizedBox(height:22),
-   Text('Text size',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800,color:navy)),
+   const Text('Text size',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800,color:navy)),
    const SizedBox(height:4),const Text('Make labels and instructions easier to read. Android display and TalkBack settings also continue to work.'),
    Slider(value:textScale,min:1.0,max:1.6,divisions:6,label:'${(textScale*100).round()}%',onChanged:_saveTextScale),
    Center(child:Text('${(textScale*100).round()}% text size',style:TextStyle(fontSize:16*textScale,fontWeight:FontWeight.w800,color:navy))),
    const SizedBox(height:18),
-   ExpansionTile(
-    title:const Text('Stick camera connection',style:TextStyle(fontWeight:FontWeight.w800)),
-    subtitle:const Text('Local Wi-Fi link to the ESP32-CAM'),
-    children:[
-     TextField(
-      controller:cameraEndpointController,
-      keyboardType:TextInputType.url,
-      decoration:const InputDecoration(labelText:'Camera base URL',helperText:'Default: http://192.168.4.1'),
-     ),
-     const SizedBox(height:8),
-     SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_saveCameraEndpoint,icon:const Icon(Icons.save_outlined),label:const Text('Save camera endpoint'))),
-     const SizedBox(height:8),
-     SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:vision.checkCamera,icon:const Icon(Icons.wifi_tethering_outlined),label:const Text('Test camera connection'))),
-     const Padding(padding:EdgeInsets.symmetric(vertical:8),child:Text('Prepare the AI model before joining the camera Wi-Fi. Default SSID: BlindStick-Camera. Change the default Wi-Fi password before public deployment.',style:TextStyle(color:Color(0xFF59697B)))),
-    ],
-   ),
    ExpansionTile(
     title:const Text('Map services (advanced)',style:TextStyle(fontWeight:FontWeight.w800)),
     subtitle:const Text('Change map/search/routing servers without updating the app'),
@@ -1902,254 +1773,16 @@ class _SettingsPageState extends State<SettingsPage>{
      TextField(controller:footRouterUrlController,keyboardType:TextInputType.url,decoration:const InputDecoration(labelText:'Foot-routing URL prefix',helperText:'Must end with an OSRM-compatible /route/v1/driving endpoint')),
      const SizedBox(height:10),
      SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_saveMapServices,icon:const Icon(Icons.save_outlined),label:const Text('Save map service settings'))),
-     if(saved!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(saved!,style:TextStyle(color:navy))),
+     if(saved!=null)Padding(padding:const EdgeInsets.symmetric(vertical:8),child:Text(saved!,style:const TextStyle(color:navy))),
      const Padding(padding:EdgeInsets.only(bottom:8),child:Text('Use servers whose terms you have checked. Public community services are best-effort and rate-limited.',style:TextStyle(color:Color(0xFF59697B)))),
     ],
    ),
    const SizedBox(height:22),
    OutlinedButton.icon(onPressed:()=>stick.announce('BlindStick Companion voice test. If you can hear this message, spoken safety guidance is working.'),icon:const Icon(Icons.volume_up_outlined),label:const Text('Test spoken guidance')),
    const SizedBox(height:12),OutlinedButton.icon(onPressed:()=>confirmSignOut(c),icon:const Icon(Icons.logout),label:const Text('Sign out')),
-   const SizedBox(height:24),Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
+   const SizedBox(height:24),const Text('Bluetooth connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),
    const SizedBox(height:8),const Text('The stick must advertise the BlindStick Companion BLE service. If it is not found, check that it is powered on and has the matching firmware. Camera AI and obstacle measurements are shown only when the hardware sends real results.'),
    const SizedBox(height:20),const Text('Safety note',style:TextStyle(color:Color(0xFF64748B))),
    const Text('BlindStick Companion is a companion prototype, not a certified mobility aid. Keep using your usual mobility skills and emergency arrangements. The app cannot guarantee GPS accuracy, network availability or emergency delivery.',style:TextStyle(color:Color(0xFF64748B))),
   ]));
-}
-), '');
-  }
-
-  Future<void> prepareModel() async {
-    if (_modelReady || preparing) {
-      if (_modelReady) status = 'On-device AI model already downloaded';
-      notifyListeners();
-      return;
-    }
-    preparing = true;
-    status = 'Downloading the one-time AI model. Keep internet available…';
-    notifyListeners();
-    try {
-      final result = await _channel.invokeMapMethod<String, dynamic>('prepareVisionModel');
-      _modelReady = result?['ready'] == true;
-      status = _modelReady
-          ? 'On-device AI ready. Connect the stick camera Wi-Fi to begin.'
-          : 'Model download did not complete. Reconnect to the internet and retry.';
-    } on PlatformException catch (error) {
-      _modelReady = false;
-      status = 'AI setup failed: ${error.message ?? error.code}';
-    } catch (error) {
-      _modelReady = false;
-      status = 'AI setup failed: $error';
-    } finally {
-      preparing = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> saveEndpoint(String value) async {
-    final parsed = Uri.tryParse(value.trim());
-    if (parsed == null || parsed.scheme != 'http' || parsed.host.isEmpty) {
-      throw const FormatException('Enter a complete local camera URL, such as http://192.168.4.1');
-    }
-    endpoint = _normalizeEndpoint(parsed.toString());
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setString('camera_base_url', endpoint);
-    _cameraReachable = false;
-    status = 'Camera endpoint saved. Check the camera connection.';
-    notifyListeners();
-  }
-
-  Future<void> openWifiSettings() async {
-    try {
-      await _channel.invokeMethod<bool>('openWifiSettings');
-    } on PlatformException catch (error) {
-      status = 'Could not open Wi-Fi settings: ${error.message ?? error.code}';
-      notifyListeners();
-    }
-  }
-
-  Future<void> checkCamera() async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      endpoint = _normalizeEndpoint(preferences.getString('camera_base_url') ?? endpoint);
-      final response = await http.get(Uri.parse('$endpoint/status'))
-          .timeout(const Duration(seconds: 4));
-      if (response.statusCode != 200) {
-        throw StateError('Camera returned HTTP ${response.statusCode}.');
-      }
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      _cameraReachable = true;
-      final assistanceActive = data['assistance'] == true;
-      status = data['camera_ready'] == true
-          ? (assistanceActive
-              ? 'Camera connected. Assistance is active.'
-              : 'Camera connected. Start assistance to enable live frames.')
-          : 'Camera Wi-Fi connected, but the camera is not ready.';
-    } catch (_) {
-      _cameraReachable = false;
-      status = 'Camera not reachable. Connect your phone to BlindStick-Camera Wi-Fi and retry.';
-    }
-    notifyListeners();
-  }
-
-  Future<void> start() async {
-    if (_running) return;
-    if (!_modelReady) {
-      status = 'Prepare the on-device AI model while internet is available first.';
-      notifyListeners();
-      return;
-    }
-    _running = true;
-    _failedFrames = 0;
-    status = 'Starting camera detection…';
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _processFrame());
-    notifyListeners();
-    await _processFrame();
-  }
-
-  void stop() {
-    if (!_running && _timer == null) return;
-    _timer?.cancel();
-    _timer = null;
-    _running = false;
-    _processing = false;
-    if (status.startsWith('Detecting') || status.startsWith('Starting camera')) {
-      status = _cameraReachable ? 'Vision paused' : 'Vision paused. Camera connection not confirmed.';
-    }
-    notifyListeners();
-  }
-
-  Future<void> _processFrame() async {
-    if (!_running || _processing) return;
-    _processing = true;
-    try {
-      final response = await http.get(Uri.parse('$endpoint/capture'))
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode != 200) {
-        if (response.statusCode == 409) {
-          throw StateError('Start stick assistance before requesting camera frames.');
-        }
-        throw StateError('Camera frame request returned HTTP ${response.statusCode}.');
-      }
-      final result = await _channel.invokeMapMethod<String, dynamic>(
-        'detectObjects',
-        <String, Object>{'jpegBytes': response.bodyBytes},
-      );
-      if (result == null) throw StateError('The on-device model returned no result.');
-      final rawDetections = result['detections'] as List<dynamic>? ?? <dynamic>[];
-      detections = rawDetections
-          .whereType<Map>()
-          .map((item) => item.map((key, value) => MapEntry(key.toString(), value)))
-          .cast<Map<String, dynamic>>()
-          .toList(growable: false);
-      personCount = (result['personCount'] as num?)?.toInt() ?? 0;
-      crowdLevel = (result['crowdLevel'] ?? 'unknown').toString();
-      final trafficDetections = detections.where((d) => d['label'] == 'traffic light');
-      trafficState = trafficDetections.isEmpty ? 'not_detected' : (trafficDetections.first['trafficState'] ?? 'unknown').toString();
-      _cameraReachable = true;
-      _failedFrames = 0;
-      status = 'Detecting locally • ${detections.length} objects • ${personCount} people • crowd $crowdLevel';
-      _processSafetyCue();
-    } catch (error) {
-      _failedFrames++;
-      _cameraReachable = false;
-      if (_failedFrames == 1 || _failedFrames % 4 == 0) {
-        status = 'Vision frame unavailable: ${error.toString().replaceFirst('Bad state: ', '')}';
-      }
-    } finally {
-      _processing = false;
-      notifyListeners();
-    }
-  }
-
-  void _processSafetyCue() {
-    final highConfidence = detections.where((d) =>
-      (d['confidence'] as num? ?? 0).toDouble() >= 0.48).toList();
-
-    Map<String, dynamic>? obstacle;
-    const obstacleLabels = <String>{
-      'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'dog',
-      'bench', 'chair', 'stop sign', 'fire hydrant', 'potted plant'
-    };
-    for (final detection in highConfidence) {
-      if (!obstacleLabels.contains(detection['label'])) continue;
-      final box = (detection['box'] as List?)?.cast<num>();
-      if (box == null || box.length != 4) continue;
-      final top = box[0].toDouble();
-      final left = box[1].toDouble();
-      final bottom = box[2].toDouble();
-      final right = box[3].toDouble();
-      final centerX = (left + right) / 2;
-      if (bottom > 0.62 && centerX > 0.12 && centerX < 0.88 && top < 0.92) {
-        obstacle = detection;
-        break;
-      }
-    }
-
-    final trafficOptions = highConfidence.where((d) => d['label'] == 'traffic light').toList();
-    final Map<String, dynamic>? traffic = trafficOptions.isEmpty ? null : trafficOptions.first;
-    final String cueKey;
-    final String spoken;
-    if (obstacle != null) {
-      final label = obstacle['label'].toString();
-      cueKey = 'obstacle:$label';
-      spoken = 'Potential obstacle in the camera view: $label. Camera distance is not measured. Use your cane and verified distance sensor; stop if uncertain.';
-    } else if (traffic != null) {
-      final colour = (traffic['trafficState'] ?? 'unknown').toString();
-      cueKey = 'traffic:$colour';
-      switch (colour) {
-        case 'red':
-          spoken = 'A traffic light appears red. Stop. This camera cannot confirm the pedestrian signal or crossing safety.';
-          break;
-        case 'amber':
-          spoken = 'A traffic light appears amber. Wait in a safe place and check the pedestrian signal. Do not cross based on this camera estimate.';
-          break;
-        case 'green':
-          spoken = 'A traffic light appears green, but this does not confirm a pedestrian walk signal. Do not cross based on this app alone.';
-          break;
-        default:
-          spoken = 'Traffic light detected, but the signal colour is unclear. Do not cross based on this app.';
-      }
-    } else if (crowdLevel == 'high') {
-      cueKey = 'crowd:high';
-      spoken = 'Several people are visible. The area may be crowded. Slow down and use your usual mobility technique.';
-    } else {
-      _lastCueKey = '';
-      return;
-    }
-
-    final now = DateTime.now();
-    final isNewCue = cueKey != _lastCueKey;
-    if (isNewCue || now.difference(_lastCueAt) > const Duration(seconds: 12)) {
-      if (now.difference(_lastCueAt) > const Duration(seconds: 4)) {
-        _lastCueKey = cueKey;
-        _lastCueAt = now;
-        HapticFeedback.heavyImpact();
-        stick.pulseVibration(durationMs: obstacle != null ? 300 : 180);
-        stick.announce(spoken);
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
-        if (currentUid != null) {
-          ApiService.instance.event(currentUid, 'vision', spoken).then((_) {}).catchError((_) => false);
-        }
-      }
-    }
-  }
-}
-
-final vision = CameraVisionService();
-
-Future<Position?> getPosition()async{try{if(!await Geolocator.isLocationServiceEnabled())return null;var p=await Geolocator.checkPermission();if(p==LocationPermission.denied)p=await Geolocator.requestPermission();if(p==LocationPermission.denied||p==LocationPermission.deniedForever)return null;return await Geolocator.getCurrentPosition(locationSettings:const LocationSettings(accuracy:LocationAccuracy.high,timeLimit:Duration(seconds:15)));}catch(_){return null;}}
-
-Future<void> openNavigation(BuildContext context, String destination, {Future<void> Function()? onEmergency}) async {
-  final place = destination.trim();
-  if (place.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please enter a destination first.')),
-    );
-    return;
-  }
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => InAppNavigationPage(initialQuery: place, onEmergency: onEmergency),
-    ),
-  );
 }
