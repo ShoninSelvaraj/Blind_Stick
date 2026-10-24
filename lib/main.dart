@@ -273,9 +273,19 @@ class ApiService {
  Future<bool> location(String patientUid,Position pos) async {
   try {
    final ref=db.collection('patients').doc(patientUid);
-   final loc={'latitude':pos.latitude,'longitude':pos.longitude,'accuracyM':pos.accuracy,'recordedAt':FieldValue.serverTimestamp()};
-   await ref.collection('locations').add(loc);
-   await ref.update({'lastLocation':loc,'lastSeenAt':FieldValue.serverTimestamp(),'updatedAt':FieldValue.serverTimestamp()});
+   final loc={
+    'latitude':pos.latitude,
+    'longitude':pos.longitude,
+    'accuracyM':pos.accuracy,
+    'recordedAt':FieldValue.serverTimestamp(),
+   };
+   // Zero-budget mode only needs the current location; don't append an unbounded
+   // subcollection every 30 seconds while sharing is enabled.
+   await ref.update({
+    'lastLocation':loc,
+    'lastSeenAt':FieldValue.serverTimestamp(),
+    'updatedAt':FieldValue.serverTimestamp(),
+   });
    return true;
   } catch (_) { return false; }
  }
@@ -1510,7 +1520,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
    actions:[TextButton(onPressed:()=>Navigator.pop(c,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(c,true),child:const Text('Save SOS'))],
   ));
   if(ok!=true)return;
-  final p=position??await getPosition();
+  final p=await getPosition();
   final sent=await api.sos(widget.user.uid,p,'Patient requested emergency assistance');
   if(!mounted)return;
   final action=await showDialog<String>(context:context,builder:(c)=>AlertDialog(
