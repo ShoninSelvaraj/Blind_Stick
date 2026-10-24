@@ -1383,7 +1383,7 @@ class _PatientPageState extends State<PatientPage>{final destination=TextEditing
   );
  }
  Future<void> _load()async{final p=await SharedPreferences.getInstance();if(!mounted)return;setState(()=>voice=p.getBool('voice')??true);voiceGuidanceEnabled=voice;_refreshLocation();}
- void _changed(){if(!mounted)return;setState((){});final shouldRunVision=stick.connected&&stick.assistance;if(shouldRunVision!=_lastVisionShouldRun){_lastVisionShouldRun=shouldRunVision;if(shouldRunVision){vision.start();}else{vision.stop();}}if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
+ void _changed(){if(!mounted)return;vision.updateRangeReading(stick.telemetry.distanceCm,receivedAt:stick.telemetry.distanceReceivedAt,sensorStatus:stick.telemetry.rangeSensorStatus);setState((){});final shouldRunVision=stick.connected&&stick.assistance;if(shouldRunVision!=_lastVisionShouldRun){_lastVisionShouldRun=shouldRunVision;if(shouldRunVision){vision.start();}else{vision.stop();}}if(lastStoredConnection!=stick.connected){lastStoredConnection=stick.connected;FirebaseFirestore.instance.collection('patients').doc(widget.user.uid).update({'deviceStatus':stick.connected?'connected':'disconnected','updatedAt':FieldValue.serverTimestamp()}).catchError((_){ });}}
  Future<bool?> _requestSharingMode() async {
   final choice=await showDialog<String>(
    context:context,
