@@ -43,7 +43,7 @@ See `../../docs/ble_protocol.json`. Telemetry is newline-terminated UTF-8 JSON. 
 
 ## Build
 
-Install Arduino IDE or PlatformIO, Espressif ESP32 board support, and the ArduinoJson library. Select the exact ESP32-CAM board profile and confirm the ESP32 core version: the camera config fields vary across core versions. This firmware has not been compiled or flashed on the physical board in this environment.
+Install Arduino IDE or PlatformIO, Espressif ESP32 board support, and the ArduinoJson library. Select the exact ESP32-CAM board profile and confirm the ESP32 core version: the camera config fields vary across core versions. The source successfully compiles in the repository's Arduino CLI ESP32-CAM CI check. It has not been flashed to or hardware-tested on the physical board in this environment.
 
 ## Camera Wi-Fi setup for the Android app
 
