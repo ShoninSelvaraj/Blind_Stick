@@ -39,7 +39,7 @@ Do not demo any unavailable camera/sensor function as working. A successful BLE 
 - Firebase Auth and Firestore are retained within their Spark quotas.
 - The app's root `firebase.json` deploys only `firestore.rules`, not Cloud Functions.
 - Camera/range fusion is advisory: the ultrasonic value is not calibrated to a particular visual bounding box.
-- One/two/three motor pulses represent approximate camera-left/right/ahead when readings are not urgent; emergency close-range patterns prioritise urgency. This single-motor code is not a precise spatial actuator.
+- One/two/three short motor pulses represent approximate camera-left/right/ahead only when the range is not urgent; a fresh close-range reading overrides direction coding with one longer stop-priority pulse. This single-motor code is not a precise spatial actuator.
 - Mapping, geocoding and routing use open-source clients/public community services. Public endpoints have policies, limits and no uptime guarantee; the current endpoint settings can be changed in the app's advanced settings.
 - No map tile or routing data is promised to work offline.
 - Do not put safety-critical navigation or emergency reliance on these public prototype services until there is a separately reviewed and tested plan.
