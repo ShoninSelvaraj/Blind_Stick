@@ -1919,9 +1919,42 @@ class CaregiverPage extends StatefulWidget{
 }
 class _CaregiverPageState extends State<CaregiverPage>{
  final codeController=TextEditingController();bool pairing=false;String? pairingError,pairingInfo;
+ bool _alertsPrimed=false;String? _alertPatientUid;final Set<String> _seenAlertIds=<String>{};
  @override void initState(){super.initState();appHighContrast.addListener(_contrastChanged);}
  void _contrastChanged(){if(mounted)setState((){});}
  @override void dispose(){appHighContrast.removeListener(_contrastChanged);codeController.dispose();super.dispose();}
+
+ void _handleAlertSnapshot(String patientUid, QuerySnapshot<Map<String,dynamic>> snapshot) {
+  if (_alertPatientUid != patientUid) {
+   _alertPatientUid = patientUid;
+   _alertsPrimed = false;
+   _seenAlertIds.clear();
+  }
+  if (!_alertsPrimed) {
+   _seenAlertIds.addAll(snapshot.docs.map((doc)=>doc.id));
+   _alertsPrimed = true;
+   return;
+  }
+  for (final change in snapshot.docChanges) {
+   if (change.type != DocumentChangeType.added || !_seenAlertIds.add(change.doc.id)) continue;
+   final data = change.doc.data();
+   if (data == null || (data['type']??'').toString() != 'sos') continue;
+   final detail = (data['message']??'Emergency assistance requested').toString();
+   WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    HapticFeedback.heavyImpact();
+    unawaited(stick.announce('Emergency alert received from $\\{widget.user.name}. $detail. Check the shared location and contact the person.'));
+    ScaffoldMessenger.of(context).showSnackBar(
+     SnackBar(
+      content:Text('Emergency alert: $detail'),
+      duration:const Duration(seconds:12),
+      action:SnackBarAction(label:'View alerts',onPressed:()=>ScaffoldMessenger.of(context).hideCurrentSnackBar()),
+     ),
+    );
+   });
+  }
+ }
+
  Future<void> _pair()async{
   if(pairing)return;
   final code=codeController.text.replaceAll(RegExp(r'\s+'),'');
@@ -1965,6 +1998,11 @@ class _CaregiverPageState extends State<CaregiverPage>{
       final location=patient['lastLocation'];
       final lat=location is Map&&location['latitude'] is num?(location['latitude'] as num).toDouble():null;
       final lon=location is Map&&location['longitude'] is num?(location['longitude'] as num).toDouble():null;
+      final locationRecordedAt=location is Map&&location['recordedAt'] is Timestamp
+          ? (location['recordedAt'] as Timestamp).toDate()
+          : null;
+      final locationAge=locationRecordedAt==null?null:DateTime.now().difference(locationRecordedAt);
+      final locationMayBeStale=locationRecordedAt==null||locationAge!>const Duration(minutes:2);
       final name=(patient['displayName']??'Your person').toString();
       return ListView(padding:const EdgeInsets.all(20),children:[
        Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(color:navy,borderRadius:BorderRadius.circular(24)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -1974,12 +2012,23 @@ class _CaregiverPageState extends State<CaregiverPage>{
        ])),
        const SizedBox(height:20),Text('Stick connection',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),Text('Status: ${(patient['deviceStatus']??'unknown').toString().replaceAll('_',' ')}',style:TextStyle(fontSize:16,fontWeight:FontWeight.w700,color:navy)),const SizedBox(height:16),Text('Latest shared location',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        Text(lat==null?'No location has been shared yet.': 'Coordinates: ${lat.toStringAsFixed(5)}, ${lon!.toStringAsFixed(5)}',style:const TextStyle(fontSize:16)),
-       if(location is Map&&location['recordedAt'] is Timestamp)Padding(padding:const EdgeInsets.only(top:4),child:Text('Updated ${(location['recordedAt'] as Timestamp).toDate().toLocal()}',style:const TextStyle(color:Color(0xFF64748B)))),
-       const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('Open location in Maps'))),
+       Padding(
+        padding:const EdgeInsets.only(top:6),
+        child:Semantics(liveRegion:true,child:Text(
+         locationRecordedAt==null
+          ? 'Freshness unknown. Treat this as a last-known location.'
+          : locationMayBeStale
+           ? 'Location may be stale. Last update: ${locationRecordedAt.toLocal()}'
+           : 'Location updated: ${locationRecordedAt.toLocal()}',
+         style:TextStyle(color:locationMayBeStale?red:teal,fontWeight:FontWeight.w700),
+        )),
+       ),
+       const SizedBox(height:12),SizedBox(height:52,child:OutlinedButton.icon(onPressed:lat==null||lon==null?null:()=>_openLastLocation(lat,lon),icon:const Icon(Icons.map_outlined),label:const Text('View location in in-app map'))),
        const SizedBox(height:22),Text('Recent alerts',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900,color:navy)),const SizedBox(height:8),
        StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
         stream:FirebaseFirestore.instance.collection('patients').doc(patientUid).collection('alerts').orderBy('createdAt',descending:true).limit(8).snapshots(),
         builder:(context,alerts){
+         if(alerts.hasData)_handleAlertSnapshot(patientUid,alerts.data!);
          if(alerts.hasError)return const Text('Alerts could not be loaded. Check your connection and access permissions.');
          if(alerts.connectionState==ConnectionState.waiting)return const LinearProgressIndicator();
          if(alerts.data!.docs.isEmpty)return const Text('No alerts have been recorded.');
