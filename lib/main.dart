@@ -607,6 +607,7 @@ class _InAppNavigationPageState extends State<InAppNavigationPage> {
           _status = 'GPS accuracy is poor';
           _error = 'Live GPS accuracy is too poor to verify turns or route position. Stop somewhere safe and wait for a better location fix.';
         });
+        HapticFeedback.heavyImpact();
         stick.announce('Warning. GPS accuracy is poor. I cannot reliably verify your next turn or whether you are on the route. Stop in a safe place and wait for a better location fix.');
       }
       return;
