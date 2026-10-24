@@ -63,7 +63,15 @@ service cloud.firestore {
     request.resource.data.createdAt == request.time &&
     request.resource.data.updatedAt == request.time &&
     request.resource.data.keys().hasOnly(['ownerUid','displayName','caregiverUids','deviceStatus','createdAt','updatedAt']);
-   allow read: if patientOwner(patientUid) || linkedCaregiver(patientUid);
+   // A signed-in patient must be able to check whether their own patient
+   // record exists before creating it for the first time. Without this narrowly
+   // scoped get permission, the initial existence check is denied by Firestore.
+   allow get: if
+    (signedIn() && request.auth.uid == patientUid && userRole(request.auth.uid) == 'patient' &&
+     (!exists(/databases/$(database)/documents/patients/$(patientUid)) ||
+      get(/databases/$(database)/documents/patients/$(patientUid)).data.ownerUid == request.auth.uid)) ||
+    patientOwner(patientUid) || linkedCaregiver(patientUid);
+   allow list: if patientOwner(patientUid) || linkedCaregiver(patientUid);
 
    allow update: if
     (patientOwner(patientUid) &&
