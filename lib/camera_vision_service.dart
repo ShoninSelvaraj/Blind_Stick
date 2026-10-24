@@ -104,7 +104,7 @@ class CameraVisionService extends ChangeNotifier {
       _modelReady = await _channel.invokeMethod<bool>('visionModelReady') ?? false;
       status = _modelReady
           ? 'Obstacle detection is ready'
-          : 'Obstacle detection needs a one-time setup. Connect to the internet to finish preparing it.';
+          : 'Obstacle detection is included with the app. Tap Set up obstacle detection to initialize it.';
     } catch (_) {
       status = 'Obstacle detection is unavailable in this app version. Please update the app.';
     }
@@ -121,7 +121,7 @@ class CameraVisionService extends ChangeNotifier {
       return;
     }
     preparing = true;
-    status = 'Setting up obstacle detection. Keep the internet connected for a moment…';
+    status = 'Setting up obstacle detection on this device…';
     notifyListeners();
     try {
       final result = await _channel.invokeMapMethod<String, dynamic>(
@@ -130,13 +130,13 @@ class CameraVisionService extends ChangeNotifier {
       _modelReady = result?['ready'] == true;
       status = _modelReady
           ? 'Obstacle detection is set up. Connect to the stick camera when you are ready.'
-          : 'Setup didn’t finish. Check your internet connection and try again.';
+          : 'Obstacle detection could not start. Restart the app and try again.';
     } on PlatformException {
       _modelReady = false;
-      status = 'Obstacle detection could not be set up. Please try again.';
+      status = 'Obstacle detection could not start. Restart the app and try again.';
     } catch (_) {
       _modelReady = false;
-      status = 'Obstacle detection could not be set up. Please try again.';
+      status = 'Obstacle detection could not start. Restart the app and try again.';
     } finally {
       preparing = false;
       notifyListeners();
@@ -228,7 +228,7 @@ class CameraVisionService extends ChangeNotifier {
   Future<void> start() async {
     if (_running) return;
     if (!_modelReady) {
-      status = 'Obstacle detection needs its first-time setup. Connect to the internet and tap Set up obstacle detection.';
+      status = 'Obstacle detection is included with the app. Tap Set up obstacle detection to initialize it.';
       notifyListeners();
       return;
     }
