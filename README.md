@@ -23,8 +23,10 @@ The app does not require Google Maps SDK, Google Maps API keys, paid map APIs, o
 ## Accessibility
 
 - Register by choosing the task: **Use my smart stick** or **Support someone I care about**. This is an app role, not identity or disability verification.
-- Primary actions have clear text labels and large touch targets.
-- Settings offers spoken guidance, text scaling (100–160%), and high-contrast black/white colors.
+- After sign-in, the patient interface is separated into four named task areas: **Home**, **Navigate**, **Connections**, and **Help & SOS**. The app bar keeps accessibility settings and sign-out easy to find.
+- Primary actions have clear text labels and large touch targets. Tab changes are announced through speech, and standard Flutter controls expose labels to TalkBack.
+- Home includes a device-readiness section that explicitly shows missing sensor/model capabilities rather than pretending they work.
+- Settings offers spoken guidance, text scaling (100–160%) that respects Android text scaling, and high-contrast black/white colors.
 - Android TalkBack and system display settings remain available.
 - Navigation instructions are available both as readable text and spoken prompts. Tapping an instruction speaks it.
 - Sign out is visible on the patient and caregiver home bars and is also available in settings.
@@ -71,7 +73,9 @@ The map and route preview are rendered inside BlindStick Companion using the ope
 - Destination search: [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/). The app requests a search only after the user taps Search; it does not autocomplete and caches repeated searches during the app session. Public Nominatim limits apply across all users of the app, so this is only suitable for low-volume prototype use. The **Accessibility & settings → Map services (advanced)** section lets the developer switch the tile, geocoder, and foot-router endpoints without releasing an app update. Before use at larger scale, switch to a self-hosted or appropriately licensed service and ensure the deployment meets the new provider's terms.
 - Walking directions: the public [OpenStreetMap routing service](https://routing.openstreetmap.de/). This is a community service with no uptime or latency guarantee. Access and policy may change.
 
-GPS, network availability and public map services can fail. Route instructions are approximate and are not proof that a road crossing, path, or obstacle is safe. **Do not rely on this prototype as the sole mobility aid.** Test routes with a sighted supervisor before field use, keep established mobility practices, and stop if the spoken location is uncertain. The app does not perform guaranteed off-route detection or automatic route recalculation.
+The navigation screen provides a route preview, written turn steps, spoken distance-to-maneuver guidance, phone haptic cues near turns, GPS-quality warnings, and a basic route-deviation warning based on phone GPS. If a deviation is suspected, turn prompts pause; the user must stop somewhere safe and manually recalculate the route. It does **not** promise reliable automatic rerouting, safe crossings, or accurate footpaths. GPS, network availability and public map services can fail. **Do not rely on this prototype as the sole mobility aid.** It has not been validated with blind/low-vision users or physically tested on real walking routes; use supervised testing before any field use.
+
+On Android, starting spoken directions asks whether to enable background guidance. If the user allows it, the app uses Geolocator's foreground location service with a persistent notification while this route is active. If background permission is declined, the app gives foreground-only guidance and instructs the user to keep the app open and screen on. Leaving the navigation screen stops its location stream; stop or finish the route before leaving.
 
 ## SOS behavior without paid backend
 
